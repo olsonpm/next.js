@@ -123,20 +123,26 @@ async function runPlaywright(baseDir, nextConfig, testRunnerArgs) {
     });
     if (!playwrightConfigFile) {
         const { pagesDir, appDir } = (0, _findpagesdir.findPagesDir)(baseDir);
-        const { version: typeScriptVersion } = await (0, _verifytypescriptsetup.verifyTypeScriptSetup)({
-            dir: baseDir,
-            distDir: nextConfig.distDir,
-            intentDirs: [
-                pagesDir,
-                appDir
-            ].filter(Boolean),
-            typeCheckPreflight: false,
-            tsconfigPath: nextConfig.typescript.tsconfigPath,
-            disableStaticImages: nextConfig.images.disableStaticImages,
-            hasAppDir: !!appDir,
-            hasPagesDir: !!pagesDir
-        });
-        const isUsingTypeScript = !!typeScriptVersion;
+        let isUsingTypeScript;
+        if (typeof nextConfig.usingTypeScript === 'boolean') {
+            isUsingTypeScript = nextConfig.usingTypeScript;
+        } else {
+            const { version: typeScriptVersion } = await (0, _verifytypescriptsetup.verifyTypeScriptSetup)({
+                dir: baseDir,
+                distDir: nextConfig.distDir,
+                intentDirs: [
+                    pagesDir,
+                    appDir
+                ].filter(Boolean),
+                typeCheckPreflight: false,
+                tsconfigPath: nextConfig.typescript.tsconfigPath,
+                disableStaticImages: nextConfig.images.disableStaticImages,
+                hasAppDir: !!appDir,
+                hasPagesDir: !!pagesDir,
+                usingTypeScript: nextConfig.usingTypeScript
+            });
+            isUsingTypeScript = !!typeScriptVersion;
+        }
         const playwrightConfigFilename = isUsingTypeScript ? 'playwright.config.ts' : 'playwright.config.js';
         (0, _fs.writeFileSync)(_path.default.join(baseDir, playwrightConfigFilename), defaultPlaywrightConfig(isUsingTypeScript));
         return (0, _utils.printAndExit)(`Successfully generated ${playwrightConfigFilename}. Create your first test and then run \`next experimental-test\`.`, 0);

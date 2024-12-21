@@ -82,6 +82,7 @@ const nextLint = async (options, directory)=>{
             appDir
         ].filter(Boolean),
         typeCheckPreflight: false,
+        usingTypeScript: nextConfig.usingTypeScript,
         tsconfigPath: nextConfig.typescript.tsconfigPath,
         disableStaticImages: nextConfig.images.disableStaticImages,
         hasAppDir: !!appDir,

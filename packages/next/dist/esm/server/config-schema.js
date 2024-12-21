@@ -518,9 +518,9 @@ export const configSchema = z.lazy(()=>z.strictObject({
             tsconfigPath: z.string().min(1).optional()
         }).optional(),
         useFileSystemPublicRoutes: z.boolean().optional(),
-        useTypescript: z.enum([
+        usingTypeScript: z.enum([
             'auto'
-        ]).or(z.boolean()).optional().default('auto'),
+        ]).or(z.boolean()).optional(),
         // The webpack config type is unknown, use z.any() here
         webpack: z.any().nullable().optional(),
         watchOptions: z.strictObject({

@@ -83,12 +83,13 @@ const requiredPackages = [
         exportsRestrict: true
     }
 ];
-async function verifyTypeScriptSetup({ dir, distDir, cacheDir, intentDirs, tsconfigPath, typeCheckPreflight, disableStaticImages, hasAppDir, hasPagesDir }) {
+async function verifyTypeScriptSetup({ dir, distDir, cacheDir, intentDirs, tsconfigPath, typeCheckPreflight, disableStaticImages, hasAppDir, hasPagesDir, usingTypeScript }) {
     const resolvedTsConfigPath = _path.default.join(dir, tsconfigPath);
     try {
         var _deps_missing;
         // Check if the project uses TypeScript:
-        const intent = await (0, _getTypeScriptIntent.getTypeScriptIntent)(dir, intentDirs, tsconfigPath);
+        const checkForIntent = usingTypeScript !== false;
+        const intent = checkForIntent && await (0, _getTypeScriptIntent.getTypeScriptIntent)(dir, intentDirs, tsconfigPath);
         if (!intent) {
             return {
                 version: null

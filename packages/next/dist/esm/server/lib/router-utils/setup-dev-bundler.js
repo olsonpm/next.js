@@ -58,7 +58,8 @@ async function verifyTypeScript(opts) {
         tsconfigPath: opts.nextConfig.typescript.tsconfigPath,
         disableStaticImages: opts.nextConfig.images.disableStaticImages,
         hasAppDir: !!opts.appDir,
-        hasPagesDir: !!opts.pagesDir
+        hasPagesDir: !!opts.pagesDir,
+        usingTypeScript: opts.nextConfig.usingTypeScript
     });
     if (verifyResult.version) {
         usingTypeScript = true;

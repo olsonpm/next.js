@@ -207,7 +207,7 @@ const defaultConfig = {
         inlineCss: false
     },
     bundlePagesRouterDependencies: false,
-    useTypescript: 'auto'
+    usingTypeScript: 'auto'
 };
 async function normalizeConfig(phase, config) {
     if (typeof config === 'function') {

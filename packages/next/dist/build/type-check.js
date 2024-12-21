@@ -68,7 +68,7 @@ function _interop_require_wildcard(obj, nodeInterop) {
  * Since it is impossible to pass a function from main thread to a worker,
  * instead of running "next/lib/typescript/runTypeCheck" in a worker,
  * we will run entire "next/lib/verify-typescript-setup" in a worker instead.
- */ function verifyTypeScriptSetup(dir, distDir, intentDirs, typeCheckPreflight, tsconfigPath, disableStaticImages, cacheDir, enableWorkerThreads, hasAppDir, hasPagesDir) {
+ */ function verifyTypeScriptSetup(dir, distDir, intentDirs, typeCheckPreflight, tsconfigPath, disableStaticImages, cacheDir, enableWorkerThreads, hasAppDir, hasPagesDir, usingTypeScript) {
     const typeCheckWorker = new _jestworker.Worker(require.resolve('../lib/verify-typescript-setup'), {
         numWorkers: 1,
         enableWorkerThreads,
@@ -85,7 +85,8 @@ function _interop_require_wildcard(obj, nodeInterop) {
         disableStaticImages,
         cacheDir,
         hasAppDir,
-        hasPagesDir
+        hasPagesDir,
+        usingTypeScript
     }).then((result)=>{
         typeCheckWorker.end();
         return result;
@@ -99,7 +100,7 @@ async function startTypeChecking({ cacheDir, config, dir, ignoreESLint, nextBuil
     const ignoreTypeScriptErrors = Boolean(config.typescript.ignoreBuildErrors);
     const eslintCacheDir = _path.default.join(cacheDir, 'eslint/');
     if (ignoreTypeScriptErrors) {
-        _log.info('Skipping validation of types');
+        _log.info('Suppressing type validation errors');
     }
     if (runLint && ignoreESLint) {
         // only print log when build require lint while ignoreESLint is enabled
@@ -121,11 +122,12 @@ async function startTypeChecking({ cacheDir, config, dir, ignoreESLint, nextBuil
     }
     const typeCheckStart = process.hrtime();
     try {
-        const [[verifyResult, typeCheckEnd]] = await Promise.all([
-            nextBuildSpan.traceChild('verify-typescript-setup').traceAsyncFn(()=>verifyTypeScriptSetup(dir, config.distDir, [
+        const shouldVerifyTsSetup = config.usingTypeScript !== false;
+        const [verifySetupResult] = await Promise.all([
+            shouldVerifyTsSetup && nextBuildSpan.traceChild('verify-typescript-setup').traceAsyncFn(()=>verifyTypeScriptSetup(dir, config.distDir, [
                     pagesDir,
                     appDir
-                ].filter(Boolean), !ignoreTypeScriptErrors, config.typescript.tsconfigPath, config.images.disableStaticImages, cacheDir, config.experimental.workerThreads, !!appDir, !!pagesDir).then((resolved)=>{
+                ].filter(Boolean), !ignoreTypeScriptErrors, config.typescript.tsconfigPath, config.images.disableStaticImages, cacheDir, config.experimental.workerThreads, !!appDir, !!pagesDir, config.usingTypeScript).then((resolved)=>{
                     const checkEnd = process.hrtime(typeCheckStart);
                     return [
                         resolved,
@@ -137,6 +139,7 @@ async function startTypeChecking({ cacheDir, config, dir, ignoreESLint, nextBuil
                 await (0, _verifyAndLint.verifyAndLint)(dir, eslintCacheDir, (_config_eslint = config.eslint) == null ? void 0 : _config_eslint.dirs, config.experimental.workerThreads, telemetry);
             })
         ]);
+        const [verifyResult, typeCheckEnd] = verifySetupResult || [];
         typeCheckingAndLintingSpinner == null ? void 0 : typeCheckingAndLintingSpinner.stopAndPersist();
         if (!ignoreTypeScriptErrors && verifyResult) {
             var _verifyResult_result, _verifyResult_result1, _verifyResult_result2;
