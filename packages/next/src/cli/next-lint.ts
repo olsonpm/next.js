@@ -105,6 +105,7 @@ const nextLint = async (options: NextLintOptions, directory?: string) => {
     distDir: nextConfig.distDir,
     intentDirs: [pagesDir, appDir].filter(Boolean) as string[],
     typeCheckPreflight: false,
+    usingTypeScript: nextConfig.usingTypeScript,
     tsconfigPath: nextConfig.typescript.tsconfigPath,
     disableStaticImages: nextConfig.images.disableStaticImages,
     hasAppDir: !!appDir,

@@ -1,6 +1,23 @@
 import loadConfig from './config'
 
 describe('loadConfig', () => {
+  describe('nextConfig.usingTypeScript', () => {
+    it("should default to 'auto'", async () => {
+      const result = await loadConfig('', __dirname, {
+        customConfig: {},
+      })
+
+      expect(result.usingTypeScript).toBe('auto')
+    })
+    it('should be false', async () => {
+      const result = await loadConfig('', __dirname, {
+        customConfig: { usingTypeScript: false },
+      })
+
+      expect(result.usingTypeScript).toBe(false)
+    })
+  })
+
   describe('nextConfig.images defaults', () => {
     it('should assign a `images.remotePatterns` when using assetPrefix', async () => {
       const result = await loadConfig('', __dirname, {

@@ -1319,6 +1319,7 @@ export const defaultConfig: NextConfig = {
   },
   htmlLimitedBots: undefined,
   bundlePagesRouterDependencies: false,
+  usingTypeScript: 'auto',
 }
 
 export async function normalizeConfig(phase: string, config: any) {

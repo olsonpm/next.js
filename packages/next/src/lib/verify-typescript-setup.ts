@@ -43,6 +43,7 @@ export async function verifyTypeScriptSetup({
   disableStaticImages,
   hasAppDir,
   hasPagesDir,
+  usingTypeScript,
 }: {
   dir: string
   distDir: string
@@ -53,12 +54,16 @@ export async function verifyTypeScriptSetup({
   disableStaticImages: boolean
   hasAppDir: boolean
   hasPagesDir: boolean
+  usingTypeScript: 'auto' | boolean
 }): Promise<{ result?: TypeCheckResult; version: string | null }> {
   const resolvedTsConfigPath = path.join(dir, tsconfigPath)
 
   try {
     // Check if the project uses TypeScript:
-    const intent = await getTypeScriptIntent(dir, intentDirs, tsconfigPath)
+    const checkForIntent = usingTypeScript !== false
+    const intent =
+      checkForIntent &&
+      (await getTypeScriptIntent(dir, intentDirs, tsconfigPath))
     if (!intent) {
       return { version: null }
     }
