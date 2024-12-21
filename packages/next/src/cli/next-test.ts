@@ -137,18 +137,25 @@ async function runPlaywright(
   if (!playwrightConfigFile) {
     const { pagesDir, appDir } = findPagesDir(baseDir)
 
-    const { version: typeScriptVersion } = await verifyTypeScriptSetup({
-      dir: baseDir,
-      distDir: nextConfig.distDir,
-      intentDirs: [pagesDir, appDir].filter(Boolean) as string[],
-      typeCheckPreflight: false,
-      tsconfigPath: nextConfig.typescript.tsconfigPath,
-      disableStaticImages: nextConfig.images.disableStaticImages,
-      hasAppDir: !!appDir,
-      hasPagesDir: !!pagesDir,
-    })
+    let isUsingTypeScript
 
-    const isUsingTypeScript = !!typeScriptVersion
+    if (typeof nextConfig.usingTypeScript === 'boolean') {
+      isUsingTypeScript = nextConfig.usingTypeScript
+    } else {
+      const { version: typeScriptVersion } = await verifyTypeScriptSetup({
+        dir: baseDir,
+        distDir: nextConfig.distDir,
+        intentDirs: [pagesDir, appDir].filter(Boolean) as string[],
+        typeCheckPreflight: false,
+        tsconfigPath: nextConfig.typescript.tsconfigPath,
+        disableStaticImages: nextConfig.images.disableStaticImages,
+        hasAppDir: !!appDir,
+        hasPagesDir: !!pagesDir,
+        usingTypeScript: nextConfig.usingTypeScript,
+      })
+
+      isUsingTypeScript = !!typeScriptVersion
+    }
 
     const playwrightConfigFilename = isUsingTypeScript
       ? 'playwright.config.ts'

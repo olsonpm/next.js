@@ -28,7 +28,8 @@ function verifyTypeScriptSetup(
   cacheDir: string | undefined,
   enableWorkerThreads: boolean | undefined,
   hasAppDir: boolean,
-  hasPagesDir: boolean
+  hasPagesDir: boolean,
+  usingTypeScript: 'auto' | boolean
 ) {
   const typeCheckWorker = new JestWorker(
     require.resolve('../lib/verify-typescript-setup'),
@@ -55,6 +56,7 @@ function verifyTypeScriptSetup(
       cacheDir,
       hasAppDir,
       hasPagesDir,
+      usingTypeScript,
     })
     .then((result) => {
       typeCheckWorker.end()
@@ -95,7 +97,7 @@ export async function startTypeChecking({
   const eslintCacheDir = path.join(cacheDir, 'eslint/')
 
   if (ignoreTypeScriptErrors) {
-    Log.info('Skipping validation of types')
+    Log.info('Suppressing type validation errors')
   }
   if (runLint && ignoreESLint) {
     // only print log when build require lint while ignoreESLint is enabled
@@ -127,24 +129,27 @@ export async function startTypeChecking({
   const typeCheckStart = process.hrtime()
 
   try {
-    const [[verifyResult, typeCheckEnd]] = await Promise.all([
-      nextBuildSpan.traceChild('verify-typescript-setup').traceAsyncFn(() =>
-        verifyTypeScriptSetup(
-          dir,
-          config.distDir,
-          [pagesDir, appDir].filter(Boolean) as string[],
-          !ignoreTypeScriptErrors,
-          config.typescript.tsconfigPath,
-          config.images.disableStaticImages,
-          cacheDir,
-          config.experimental.workerThreads,
-          !!appDir,
-          !!pagesDir
-        ).then((resolved) => {
-          const checkEnd = process.hrtime(typeCheckStart)
-          return [resolved, checkEnd] as const
-        })
-      ),
+    const shouldVerifyTsSetup = config.usingTypeScript !== false
+    const [verifySetupResult] = await Promise.all([
+      shouldVerifyTsSetup &&
+        nextBuildSpan.traceChild('verify-typescript-setup').traceAsyncFn(() =>
+          verifyTypeScriptSetup(
+            dir,
+            config.distDir,
+            [pagesDir, appDir].filter(Boolean) as string[],
+            !ignoreTypeScriptErrors,
+            config.typescript.tsconfigPath,
+            config.images.disableStaticImages,
+            cacheDir,
+            config.experimental.workerThreads,
+            !!appDir,
+            !!pagesDir,
+            config.usingTypeScript
+          ).then((resolved) => {
+            const checkEnd = process.hrtime(typeCheckStart)
+            return [resolved, checkEnd] as const
+          })
+        ),
       shouldLint &&
         nextBuildSpan.traceChild('verify-and-lint').traceAsyncFn(async () => {
           await verifyAndLint(
@@ -156,12 +161,13 @@ export async function startTypeChecking({
           )
         }),
     ])
+    const [verifyResult, typeCheckEnd] = verifySetupResult || []
     typeCheckingAndLintingSpinner?.stopAndPersist()
 
     if (!ignoreTypeScriptErrors && verifyResult) {
       telemetry.record(
         eventTypeCheckCompleted({
-          durationInSeconds: typeCheckEnd[0],
+          durationInSeconds: typeCheckEnd![0],
           typescriptVersion: verifyResult.version,
           inputFilesCount: verifyResult.result?.inputFilesCount,
           totalFilesCount: verifyResult.result?.totalFilesCount,
