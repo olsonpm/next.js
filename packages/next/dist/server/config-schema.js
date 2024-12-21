@@ -528,6 +528,9 @@ const configSchema = _zod.z.lazy(()=>_zod.z.strictObject({
             tsconfigPath: _zod.z.string().min(1).optional()
         }).optional(),
         useFileSystemPublicRoutes: _zod.z.boolean().optional(),
+        useTypescript: _zod.z.enum([
+            'auto'
+        ]).or(_zod.z.boolean()).optional().default('auto'),
         // The webpack config type is unknown, use z.any() here
         webpack: _zod.z.any().nullable().optional(),
         watchOptions: _zod.z.strictObject({
