@@ -113,6 +113,10 @@ export type ServerFields = {
 }
 
 async function verifyTypeScript(opts: SetupOpts) {
+  if (typeof opts.nextConfig.usingTypeScript === 'boolean') {
+    return opts.nextConfig.usingTypeScript
+  }
+
   let usingTypeScript = false
   const verifyResult = await verifyTypeScriptSetup({
     dir: opts.dir,
