@@ -629,6 +629,7 @@ export const configSchema: zod.ZodType<NextConfig> = z.lazy(() =>
       })
       .optional(),
     useFileSystemPublicRoutes: z.boolean().optional(),
+    usingTypeScript: z.enum(['auto']).or(z.boolean()).optional(),
     // The webpack config type is unknown, use z.any() here
     webpack: z.any().nullable().optional(),
     watchOptions: z
