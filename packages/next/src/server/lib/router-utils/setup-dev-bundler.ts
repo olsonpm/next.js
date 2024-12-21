@@ -127,6 +127,7 @@ async function verifyTypeScript(opts: SetupOpts) {
     disableStaticImages: opts.nextConfig.images.disableStaticImages,
     hasAppDir: !!opts.appDir,
     hasPagesDir: !!opts.pagesDir,
+    usingTypeScript: opts.nextConfig.usingTypeScript,
   })
 
   if (verifyResult.version) {

@@ -1,20 +1,20 @@
 import loadConfig from './config'
 
 describe('loadConfig', () => {
-  describe('nextConfig.useTypescript', () => {
+  describe('nextConfig.usingTypeScript', () => {
     it("should default to 'auto'", async () => {
       const result = await loadConfig('', __dirname, {
         customConfig: {},
       })
 
-      expect(result.useTypescript).toBe('auto')
+      expect(result.usingTypeScript).toBe('auto')
     })
     it('should be false', async () => {
       const result = await loadConfig('', __dirname, {
-        customConfig: { useTypescript: false },
+        customConfig: { usingTypeScript: false },
       })
 
-      expect(result.useTypescript).toBe(false)
+      expect(result.usingTypeScript).toBe(false)
     })
   })
 

@@ -1165,7 +1165,7 @@ export const defaultConfig: NextConfig = {
     inlineCss: false,
   },
   bundlePagesRouterDependencies: false,
-  useTypescript: 'auto',
+  usingTypeScript: 'auto',
 }
 
 export async function normalizeConfig(phase: string, config: any) {
