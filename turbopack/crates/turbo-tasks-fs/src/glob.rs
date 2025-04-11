@@ -3,10 +3,10 @@ use std::mem::take;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use turbo_rcstr::RcStr;
-use turbo_tasks::{trace::TraceRawVcs, TryJoinIterExt, Vc};
+use turbo_tasks::{trace::TraceRawVcs, NonLocalValue, TryJoinIterExt, Vc};
 use unicode_segmentation::GraphemeCursor;
 
-#[derive(PartialEq, Eq, Debug, Clone, TraceRawVcs, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Clone, TraceRawVcs, Serialize, Deserialize, NonLocalValue)]
 enum GlobPart {
     /// `/**/`: Matches any path of directories
     AnyDirectories,
@@ -407,13 +407,7 @@ impl Glob {
         }
         Ok(Self::cell(Glob {
             expression: vec![GlobPart::Alternatives(
-                globs
-                    .into_iter()
-                    .try_join()
-                    .await?
-                    .into_iter()
-                    .map(|g| g.clone_value())
-                    .collect(),
+                globs.into_iter().map(|g| g.owned()).try_join().await?,
             )],
         }))
     }

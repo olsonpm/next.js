@@ -9,7 +9,8 @@ use swc_core::{
 };
 use turbo_rcstr::RcStr;
 use turbo_tasks::{
-    trace::TraceRawVcs, util::WrapFuture, ResolvedVc, TryJoinIterExt, ValueDefault, Vc,
+    trace::TraceRawVcs, util::WrapFuture, NonLocalValue, ResolvedVc, TryJoinIterExt, ValueDefault,
+    Vc,
 };
 use turbo_tasks_fs::FileSystemPath;
 use turbopack_core::{
@@ -29,7 +30,9 @@ use turbopack_ecmascript::{
 
 use crate::{app_structure::AppPageLoaderTree, util::NextRuntime};
 
-#[derive(Default, PartialEq, Eq, Clone, Copy, Debug, TraceRawVcs, Serialize, Deserialize)]
+#[derive(
+    Default, PartialEq, Eq, Clone, Copy, Debug, TraceRawVcs, Serialize, Deserialize, NonLocalValue,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum NextSegmentDynamic {
     #[default]
@@ -39,7 +42,9 @@ pub enum NextSegmentDynamic {
     ForceStatic,
 }
 
-#[derive(Default, PartialEq, Eq, Clone, Copy, Debug, TraceRawVcs, Serialize, Deserialize)]
+#[derive(
+    Default, PartialEq, Eq, Clone, Copy, Debug, TraceRawVcs, Serialize, Deserialize, NonLocalValue,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum NextSegmentFetchCache {
     #[default]
@@ -52,7 +57,9 @@ pub enum NextSegmentFetchCache {
     ForceNoStore,
 }
 
-#[derive(Default, PartialEq, Eq, Clone, Copy, Debug, TraceRawVcs, Serialize, Deserialize)]
+#[derive(
+    Default, PartialEq, Eq, Clone, Copy, Debug, TraceRawVcs, Serialize, Deserialize, NonLocalValue,
+)]
 pub enum NextRevalidate {
     #[default]
     Never,
@@ -170,7 +177,7 @@ impl NextSegmentConfig {
 pub struct NextSegmentConfigParsingIssue {
     ident: ResolvedVc<AssetIdent>,
     detail: ResolvedVc<StyledString>,
-    source: ResolvedVc<IssueSource>,
+    source: IssueSource,
 }
 
 #[turbo_tasks::value_impl]
@@ -179,7 +186,7 @@ impl NextSegmentConfigParsingIssue {
     pub fn new(
         ident: ResolvedVc<AssetIdent>,
         detail: ResolvedVc<StyledString>,
-        source: ResolvedVc<IssueSource>,
+        source: IssueSource,
     ) -> Vc<Self> {
         Self {
             ident,
@@ -240,17 +247,14 @@ impl Issue for NextSegmentConfigParsingIssue {
     #[turbo_tasks::function]
     async fn source(&self) -> Result<Vc<OptionIssueSource>> {
         Ok(Vc::cell(Some(
-            self.source
-                .resolve_source_map(self.ident.path())
-                .to_resolved()
-                .await?,
+            self.source.resolve_source_map().await?.into_owned(),
         )))
     }
 }
 
 #[turbo_tasks::function]
 pub async fn parse_segment_config_from_source(
-    source: Vc<Box<dyn Source>>,
+    source: ResolvedVc<Box<dyn Source>>,
 ) -> Result<Vc<NextSegmentConfig>> {
     let path = source.ident().path().await?;
 
@@ -266,7 +270,7 @@ pub async fn parse_segment_config_from_source(
     }
 
     let result = &*parse(
-        source,
+        *source,
         turbo_tasks::Value::new(if path.path.ends_with(".ts") {
             EcmascriptModuleAssetType::Typescript {
                 tsx: false,
@@ -341,12 +345,8 @@ pub async fn parse_segment_config_from_source(
     Ok(config.cell())
 }
 
-fn issue_source(source: Vc<Box<dyn Source>>, span: Span) -> Vc<IssueSource> {
-    IssueSource::from_swc_offsets(source, span.lo.to_usize(), span.hi.to_usize())
-}
-
 async fn parse_config_value(
-    source: Vc<Box<dyn Source>>,
+    source: ResolvedVc<Box<dyn Source>>,
     config: &mut NextSegmentConfig,
     ident: &Ident,
     init: &Expr,
@@ -354,7 +354,7 @@ async fn parse_config_value(
 ) -> Result<()> {
     let span = init.span();
     async fn invalid_config(
-        source: Vc<Box<dyn Source>>,
+        source: ResolvedVc<Box<dyn Source>>,
         span: Span,
         detail: &str,
         value: &JsValue,
@@ -363,10 +363,14 @@ async fn parse_config_value(
         let detail =
             StyledString::Text(format!("{detail} Got {explainer}.{hints}").into()).resolved_cell();
 
-        NextSegmentConfigParsingIssue::new(source.ident(), *detail, issue_source(source, span))
-            .to_resolved()
-            .await?
-            .emit();
+        NextSegmentConfigParsingIssue::new(
+            source.ident(),
+            *detail,
+            IssueSource::from_swc_offsets(source, span.lo.to_u32(), span.hi.to_u32()),
+        )
+        .to_resolved()
+        .await?
+        .emit();
         Ok(())
     }
 

@@ -49,6 +49,7 @@ export default async function loadJsConfig(
 ): Promise<{
   useTypeScript: boolean
   jsConfig: JsConfig
+  jsConfigPath?: string
   resolvedBaseUrl: ResolvedBaseUrl
 }> {
   let typeScriptPath: string | undefined
@@ -63,7 +64,10 @@ export default async function loadJsConfig(
     typeScriptPath = deps.resolved.get('typescript')
   } catch {}
   const tsConfigPath = path.join(dir, config.typescript.tsconfigPath)
-  const useTypeScript = Boolean(typeScriptPath && fs.existsSync(tsConfigPath))
+  const useExplicitCfg = typeof config.usingTypeScript === 'boolean'
+  const useTypeScript = useExplicitCfg
+    ? config.usingTypeScript
+    : Boolean(typeScriptPath && fs.existsSync(tsConfigPath))
 
   let implicitBaseurl
   let jsConfig: { compilerOptions: Record<string, any> } | undefined
@@ -110,5 +114,10 @@ export default async function loadJsConfig(
     useTypeScript,
     jsConfig,
     resolvedBaseUrl,
+    jsConfigPath: useTypeScript
+      ? tsConfigPath
+      : fs.existsSync(jsConfigPath)
+        ? jsConfigPath
+        : undefined,
   }
 }

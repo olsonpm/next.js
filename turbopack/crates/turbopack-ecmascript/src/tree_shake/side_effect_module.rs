@@ -1,12 +1,13 @@
 use anyhow::Result;
 use turbo_rcstr::RcStr;
-use turbo_tasks::{ResolvedVc, Value, Vc};
+use turbo_tasks::{ResolvedVc, TryJoinIterExt, Value, Vc};
 use turbo_tasks_fs::glob::Glob;
 use turbopack_core::{
     asset::{Asset, AssetContent},
     chunk::{ChunkableModule, ChunkingContext, EvaluatableAsset},
     ident::AssetIdent,
     module::Module,
+    module_graph::ModuleGraph,
     reference::{ModuleReferences, SingleChunkableModuleReference},
     resolve::ModulePart,
 };
@@ -22,7 +23,7 @@ pub(super) struct SideEffectsModule {
     /// Original module
     pub module: ResolvedVc<EcmascriptModuleAsset>,
     /// The part of the original module that is the binding
-    pub part: ResolvedVc<ModulePart>,
+    pub part: ModulePart,
     /// The module that is the binding
     pub resolved_as: ResolvedVc<Box<dyn EcmascriptChunkPlaceable>>,
     /// Side effects from the original module to the binding.
@@ -34,7 +35,7 @@ impl SideEffectsModule {
     #[turbo_tasks::function]
     pub fn new(
         module: ResolvedVc<EcmascriptModuleAsset>,
-        part: ResolvedVc<ModulePart>,
+        part: ModulePart,
         resolved_as: ResolvedVc<Box<dyn EcmascriptChunkPlaceable>>,
         side_effects: Vec<ResolvedVc<Box<dyn EcmascriptChunkPlaceable>>>,
     ) -> Vc<Self> {
@@ -52,8 +53,8 @@ impl SideEffectsModule {
 impl Module for SideEffectsModule {
     #[turbo_tasks::function]
     async fn ident(&self) -> Result<Vc<AssetIdent>> {
-        let mut ident = self.module.ident().await?.clone_value();
-        ident.parts.push(self.part);
+        let mut ident = self.module.ident().owned().await?;
+        ident.parts.push(self.part.clone());
 
         ident.add_asset(
             ResolvedVc::cell(RcStr::from("resolved")),
@@ -76,16 +77,22 @@ impl Module for SideEffectsModule {
     async fn references(&self) -> Result<Vc<ModuleReferences>> {
         let mut references = vec![];
 
-        for &side_effect in self.side_effects.iter() {
-            references.push(ResolvedVc::upcast(
-                SingleChunkableModuleReference::new(
-                    *ResolvedVc::upcast(side_effect),
-                    Vc::cell(RcStr::from("side effect")),
-                )
-                .to_resolved()
+        references.extend(
+            self.side_effects
+                .iter()
+                .map(|side_effect| async move {
+                    Ok(ResolvedVc::upcast(
+                        SingleChunkableModuleReference::new(
+                            *ResolvedVc::upcast(*side_effect),
+                            Vc::cell(RcStr::from("side effect")),
+                        )
+                        .to_resolved()
+                        .await?,
+                    ))
+                })
+                .try_join()
                 .await?,
-            ));
-        }
+        );
 
         references.push(ResolvedVc::upcast(
             SingleChunkableModuleReference::new(
@@ -126,12 +133,14 @@ impl ChunkableModule for SideEffectsModule {
     #[turbo_tasks::function]
     async fn as_chunk_item(
         self: Vc<Self>,
-        chunking_context: Vc<Box<dyn ChunkingContext>>,
+        module_graph: ResolvedVc<ModuleGraph>,
+        chunking_context: ResolvedVc<Box<dyn ChunkingContext>>,
     ) -> Result<Vc<Box<dyn turbopack_core::chunk::ChunkItem>>> {
         Ok(Vc::upcast(
             SideEffectsModuleChunkItem {
                 module: self.to_resolved().await?,
-                chunking_context: chunking_context.to_resolved().await?,
+                module_graph,
+                chunking_context,
             }
             .cell(),
         ))

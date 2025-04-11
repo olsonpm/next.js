@@ -99,7 +99,7 @@
             [
                 Constant(
                     Str(
-                        Word(
+                        Atom(
                             "../../webpack-api-runtime.js",
                         ),
                     ),
@@ -141,37 +141,40 @@
     ),
     (
         "hello",
-        MemberCall(
-            5,
-            Variable(
-                (
-                    "promises_namespaceObject",
-                    #4,
-                ),
-            ),
-            Constant(
-                Str(
-                    Atom(
-                        "readFile",
-                    ),
-                ),
-            ),
-            [
-                Constant(
-                    Str(
-                        Word(
-                            "./hello.txt",
-                        ),
+        Awaited(
+            6,
+            MemberCall(
+                5,
+                Variable(
+                    (
+                        "promises_namespaceObject",
+                        #4,
                     ),
                 ),
                 Constant(
                     Str(
-                        Word(
-                            "utf-8",
+                        Atom(
+                            "readFile",
                         ),
                     ),
                 ),
-            ],
+                [
+                    Constant(
+                        Str(
+                            Atom(
+                                "./hello.txt",
+                            ),
+                        ),
+                    ),
+                    Constant(
+                        Str(
+                            Atom(
+                                "utf-8",
+                            ),
+                        ),
+                    ),
+                ],
+            ),
         ),
     ),
     (
@@ -191,7 +194,7 @@
             [
                 Constant(
                     Str(
-                        Word(
+                        Atom(
                             "fs/promises",
                         ),
                     ),

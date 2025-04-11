@@ -1509,6 +1509,10 @@ function runTests({ dev }) {
             },
           },
         ],
+        rewriteHeaders: {
+          pathHeader: 'x-nextjs-rewritten-path',
+          queryHeader: 'x-nextjs-rewritten-query',
+        },
         rsc: {
           header: 'RSC',
           contentTypeHeader: 'text/x-component',
@@ -1516,6 +1520,9 @@ function runTests({ dev }) {
           varyHeader:
             'RSC, Next-Router-State-Tree, Next-Router-Prefetch, Next-Router-Segment-Prefetch',
           prefetchHeader: 'Next-Router-Prefetch',
+          prefetchSegmentDirSuffix: '.segments',
+          prefetchSegmentHeader: 'Next-Router-Segment-Prefetch',
+          prefetchSegmentSuffix: '.segment.rsc',
           prefetchSuffix: '.prefetch.rsc',
           suffix: '.rsc',
         },
@@ -1543,7 +1550,7 @@ function runTests({ dev }) {
         '/d/[id]': 'pages/d/[id].html',
         '/dash/[hello-world]': 'pages/dash/[hello-world].html',
         '/': 'pages/index.html',
-        '/index/[...slug]': process.env.TURBOPACK
+        '/index/[...slug]': process.env.IS_TURBOPACK_TEST
           ? 'pages/index/index/[...slug].html'
           : 'pages/index/[...slug].html',
         '/on-mount/[post]': 'pages/on-mount/[post].html',

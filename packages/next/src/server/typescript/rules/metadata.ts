@@ -1,16 +1,18 @@
 import { NEXT_TS_ERRORS } from '../constant'
 import {
-  getInfo,
   getSource,
+  getSourceFromVirtualTsEnv,
   getTs,
   getTypeChecker,
   isPositionInsideNode,
+  log,
+  virtualTsEnv,
 } from '../utils'
 
 import type tsModule from 'typescript/lib/tsserverlibrary'
 
-const TYPE_ANOTATION = ': Metadata'
-const TYPE_ANOTATION_ASYNC = ': Promise<Metadata>'
+const TYPE_ANNOTATION = ': Metadata | null'
+const TYPE_ANNOTATION_ASYNC = ': Promise<Metadata | null>'
 const TYPE_IMPORT = `\n\nimport type { Metadata } from 'next'`
 
 // Find the `export const metadata = ...` node.
@@ -49,101 +51,6 @@ function getMetadataExport(fileName: string, position: number) {
   return metadataExport
 }
 
-let cachedProxiedLanguageService: tsModule.LanguageService | undefined
-let cachedProxiedLanguageServiceHost: tsModule.LanguageServiceHost | undefined
-function getProxiedLanguageService() {
-  if (cachedProxiedLanguageService)
-    return {
-      languageService: cachedProxiedLanguageService as tsModule.LanguageService,
-      languageServiceHost:
-        cachedProxiedLanguageServiceHost as tsModule.LanguageServiceHost & {
-          addFile: (fileName: string, body: string) => void
-        },
-    }
-
-  const languageServiceHost = getInfo().languageServiceHost
-
-  const ts = getTs()
-  class ProxiedLanguageServiceHost implements tsModule.LanguageServiceHost {
-    files: {
-      [fileName: string]: { file: tsModule.IScriptSnapshot; ver: number }
-    } = {}
-
-    log = () => {}
-    trace = () => {}
-    error = () => {}
-    getCompilationSettings = () => languageServiceHost.getCompilationSettings()
-    getScriptIsOpen = () => true
-    getCurrentDirectory = () => languageServiceHost.getCurrentDirectory()
-    getDefaultLibFileName = (o: any) =>
-      languageServiceHost.getDefaultLibFileName(o)
-
-    getScriptVersion = (fileName: string) => {
-      const file = this.files[fileName]
-      if (!file) return languageServiceHost.getScriptVersion(fileName)
-      return file.ver.toString()
-    }
-
-    getScriptSnapshot = (fileName: string) => {
-      const file = this.files[fileName]
-      if (!file) return languageServiceHost.getScriptSnapshot(fileName)
-      return file.file
-    }
-
-    getScriptFileNames(): string[] {
-      const names: Set<string> = new Set()
-      for (var name in this.files) {
-        if (this.files.hasOwnProperty(name)) {
-          names.add(name)
-        }
-      }
-      const files = languageServiceHost.getScriptFileNames()
-      for (const file of files) {
-        names.add(file)
-      }
-      return [...names]
-    }
-
-    addFile(fileName: string, body: string) {
-      const snap = ts.ScriptSnapshot.fromString(body)
-      snap.getChangeRange = (_) => undefined
-      const existing = this.files[fileName]
-      if (existing) {
-        this.files[fileName].ver++
-        this.files[fileName].file = snap
-      } else {
-        this.files[fileName] = { ver: 1, file: snap }
-      }
-    }
-
-    readFile(fileName: string) {
-      const file = this.files[fileName]
-      return file
-        ? file.file.getText(0, file.file.getLength())
-        : languageServiceHost.readFile(fileName)
-    }
-    fileExists(fileName: string) {
-      return (
-        this.files[fileName] !== undefined ||
-        languageServiceHost.fileExists(fileName)
-      )
-    }
-  }
-
-  cachedProxiedLanguageServiceHost = new ProxiedLanguageServiceHost()
-  cachedProxiedLanguageService = ts.createLanguageService(
-    cachedProxiedLanguageServiceHost,
-    ts.createDocumentRegistry()
-  )
-  return {
-    languageService: cachedProxiedLanguageService as tsModule.LanguageService,
-    languageServiceHost:
-      cachedProxiedLanguageServiceHost as tsModule.LanguageServiceHost & {
-        addFile: (fileName: string, body: string) => void
-      },
-  }
-}
-
 function updateVirtualFileWithType(
   fileName: string,
   node: tsModule.VariableDeclaration | tsModule.FunctionDeclaration,
@@ -152,7 +59,7 @@ function updateVirtualFileWithType(
   const source = getSource(fileName)
   if (!source) return
 
-  // We annotate with the type in a vritual language service
+  // We annotate with the type in a virtual language service
   const sourceText = source.getFullText()
   let nodeEnd: number
   let annotation: string
@@ -164,13 +71,13 @@ function updateVirtualFileWithType(
       const isAsync = node.modifiers?.some(
         (m) => m.kind === ts.SyntaxKind.AsyncKeyword
       )
-      annotation = isAsync ? TYPE_ANOTATION_ASYNC : TYPE_ANOTATION
+      annotation = isAsync ? TYPE_ANNOTATION_ASYNC : TYPE_ANNOTATION
     } else {
       return
     }
   } else {
     nodeEnd = node.name.getFullStart() + node.name.getFullWidth()
-    annotation = TYPE_ANOTATION
+    annotation = TYPE_ANNOTATION
   }
 
   const newSource =
@@ -178,8 +85,14 @@ function updateVirtualFileWithType(
     annotation +
     sourceText.slice(nodeEnd) +
     TYPE_IMPORT
-  const { languageServiceHost } = getProxiedLanguageService()
-  languageServiceHost.addFile(fileName, newSource)
+
+  if (virtualTsEnv.getSourceFile(fileName)) {
+    log('Updating file: ' + fileName)
+    virtualTsEnv.updateFile(fileName, newSource)
+  } else {
+    log('Creating file: ' + fileName)
+    virtualTsEnv.createFile(fileName, newSource)
+  }
 
   return [nodeEnd, annotation.length]
 }
@@ -196,9 +109,9 @@ function proxyDiagnostics(
   n: tsModule.VariableDeclaration | tsModule.FunctionDeclaration
 ) {
   // Get diagnostics
-  const { languageService } = getProxiedLanguageService()
-  const diagnostics = languageService.getSemanticDiagnostics(fileName)
-  const source = getSource(fileName)
+  const diagnostics =
+    virtualTsEnv.languageService.getSemanticDiagnostics(fileName)
+  const source = getSourceFromVirtualTsEnv(fileName)
 
   // Filter and map the results
   return diagnostics
@@ -232,24 +145,26 @@ const metadata = {
     if (!node) return prior
     if (isTyped(node)) return prior
 
-    const ts = getTs()
-
-    // We annotate with the type in a vritual language service
+    // We annotate with the type in a virtual language service
     const pos = updateVirtualFileWithType(fileName, node)
     if (pos === undefined) return prior
 
     // Get completions
-    const { languageService } = getProxiedLanguageService()
     const newPos = position <= pos[0] ? position : position + pos[1]
-    const completions = languageService.getCompletionsAtPosition(
+    const completions = virtualTsEnv.languageService.getCompletionsAtPosition(
       fileName,
       newPos,
       undefined
     )
 
     if (completions) {
+      const ts = getTs()
       completions.isIncomplete = true
-
+      // https://github.com/microsoft/TypeScript/blob/4dc677b292354f4b9162452b2e00f4d7dd118221/src/services/types.ts#L1428-L1433
+      if (completions.optionalReplacementSpan) {
+        // Adjust the start position of the text span to original source.
+        completions.optionalReplacementSpan.start -= newPos - position
+      }
       completions.entries = completions.entries
         .filter((e) => {
           return [
@@ -335,7 +250,7 @@ const metadata = {
       if (node.name?.getText() === 'generateMetadata') {
         if (isTyped(node)) return []
 
-        // We annotate with the type in a vritual language service
+        // We annotate with the type in a virtual language service
         const pos = updateVirtualFileWithType(fileName, node, true)
         if (!pos) return []
 
@@ -346,7 +261,7 @@ const metadata = {
         if (declaration.name.getText() === 'metadata') {
           if (isTyped(declaration)) break
 
-          // We annotate with the type in a vritual language service
+          // We annotate with the type in a virtual language service
           const pos = updateVirtualFileWithType(fileName, declaration)
           if (!pos) break
 
@@ -409,7 +324,7 @@ const metadata = {
                     declaration.getSourceFile().fileName
                   const isSameFile = declarationFileName === fileName
 
-                  // We annotate with the type in a vritual language service
+                  // We annotate with the type in a virtual language service
                   const pos = updateVirtualFileWithType(
                     declarationFileName,
                     declaration
@@ -461,14 +376,13 @@ const metadata = {
     if (!node) return
     if (isTyped(node)) return
 
-    // We annotate with the type in a vritual language service
+    // We annotate with the type in a virtual language service
     const pos = updateVirtualFileWithType(fileName, node)
     if (pos === undefined) return
 
-    const { languageService } = getProxiedLanguageService()
     const newPos = position <= pos[0] ? position : position + pos[1]
 
-    const details = languageService.getCompletionEntryDetails(
+    const details = virtualTsEnv.languageService.getCompletionEntryDetails(
       fileName,
       newPos,
       entryName,
@@ -485,13 +399,15 @@ const metadata = {
     if (!node) return
     if (isTyped(node)) return
 
-    // We annotate with the type in a vritual language service
+    // We annotate with the type in a virtual language service
     const pos = updateVirtualFileWithType(fileName, node)
     if (pos === undefined) return
 
-    const { languageService } = getProxiedLanguageService()
     const newPos = position <= pos[0] ? position : position + pos[1]
-    const insight = languageService.getQuickInfoAtPosition(fileName, newPos)
+    const insight = virtualTsEnv.languageService.getQuickInfoAtPosition(
+      fileName,
+      newPos
+    )
     return insight
   },
 
@@ -500,14 +416,13 @@ const metadata = {
     if (!node) return
     if (isTyped(node)) return
     if (!isPositionInsideNode(position, node)) return
-    // We annotate with the type in a vritual language service
+    // We annotate with the type in a virtual language service
     const pos = updateVirtualFileWithType(fileName, node)
     if (pos === undefined) return
-    const { languageService } = getProxiedLanguageService()
     const newPos = position <= pos[0] ? position : position + pos[1]
 
     const definitionInfoAndBoundSpan =
-      languageService.getDefinitionAndBoundSpan(fileName, newPos)
+      virtualTsEnv.languageService.getDefinitionAndBoundSpan(fileName, newPos)
 
     if (definitionInfoAndBoundSpan) {
       // Adjust the start position of the text span

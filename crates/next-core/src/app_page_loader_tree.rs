@@ -34,8 +34,8 @@ pub struct AppPageLoaderTreeBuilder {
 
 impl AppPageLoaderTreeBuilder {
     fn new(
-        module_asset_context: Vc<ModuleAssetContext>,
-        server_component_transition: Vc<Box<dyn Transition>>,
+        module_asset_context: ResolvedVc<ModuleAssetContext>,
+        server_component_transition: ResolvedVc<Box<dyn Transition>>,
         base_path: Option<RcStr>,
     ) -> Self {
         AppPageLoaderTreeBuilder {
@@ -133,11 +133,18 @@ impl AppPageLoaderTreeBuilder {
             return Ok(());
         };
 
-        let manifest_route = &format!("/{}", get_metadata_route_name(manifest).await?);
+        let metadata_manifest_route = get_metadata_route_name(manifest).await?;
+        // prefix with base_path if it exists
+        let manifest_route = if let Some(base_path) = &self.base_path {
+            format!("{}/{}", base_path, metadata_manifest_route)
+        } else {
+            metadata_manifest_route.to_string()
+        };
+
         writeln!(
             self.loader_tree_code,
             "    manifest: {},",
-            StringifyJs(manifest_route)
+            StringifyJs(&manifest_route)
         )?;
 
         Ok(())
@@ -169,8 +176,14 @@ impl AppPageLoaderTreeBuilder {
     ) -> Result<()> {
         match item {
             MetadataWithAltItem::Static { path, alt_path } => {
-                self.write_static_metadata_item(app_page, name, item, *path, *alt_path)
-                    .await?;
+                self.write_static_metadata_item(
+                    app_page,
+                    name,
+                    item,
+                    **path,
+                    alt_path.as_deref().copied(),
+                )
+                .await?;
             }
             MetadataWithAltItem::Dynamic { path, .. } => {
                 let i = self.base.unique_number();
@@ -182,8 +195,8 @@ impl AppPageLoaderTreeBuilder {
                     .push(format!("import {identifier} from \"{inner_module_id}\";").into());
 
                 let source = dynamic_image_metadata_source(
-                    Vc::upcast(self.base.module_asset_context),
-                    *path,
+                    *ResolvedVc::upcast(self.base.module_asset_context),
+                    **path,
                     name.into(),
                     app_page.clone(),
                 );
@@ -213,7 +226,8 @@ impl AppPageLoaderTreeBuilder {
         let identifier = magic_identifier::mangle(&format!("{name} #{i}"));
         let inner_module_id = format!("METADATA_{i}");
         let helper_import: RcStr = "import { fillMetadataSegment } from \
-                                    \"next/dist/lib/metadata/get-metadata-route\""
+                                    'next/dist/lib/metadata/get-metadata-route' with { \
+                                    'turbopack-transition': 'next-server-utility' }"
             .into();
 
         if !self.base.imports.contains(&helper_import) {
@@ -226,7 +240,7 @@ impl AppPageLoaderTreeBuilder {
         let module = Vc::upcast(StructuredImageModuleType::create_module(
             Vc::upcast(FileSource::new(path)),
             BlurPlaceholderMode::None,
-            self.base.module_asset_context,
+            *self.base.module_asset_context,
         ));
         let module = self.base.process_module(module).to_resolved().await?;
         self.base
@@ -243,7 +257,7 @@ impl AppPageLoaderTreeBuilder {
         let metadata_route = &*get_metadata_route_name((*item).into()).await?;
         writeln!(
             self.loader_tree_code,
-            "{s}  url: fillMetadataSegment({}, props.params, {}) + \
+            "{s}  url: fillMetadataSegment({}, await props.params, {}) + \
              `?${{{identifier}.src.split(\"/\").splice(-1)[0]}}`,",
             StringifyJs(&pathname_prefix),
             StringifyJs(metadata_route),
@@ -408,8 +422,8 @@ pub struct AppPageLoaderTreeModule {
 impl AppPageLoaderTreeModule {
     pub async fn build(
         loader_tree: Vc<AppPageLoaderTree>,
-        module_asset_context: Vc<ModuleAssetContext>,
-        server_component_transition: Vc<Box<dyn Transition>>,
+        module_asset_context: ResolvedVc<ModuleAssetContext>,
+        server_component_transition: ResolvedVc<Box<dyn Transition>>,
         base_path: Option<RcStr>,
     ) -> Result<Self> {
         AppPageLoaderTreeBuilder::new(module_asset_context, server_component_transition, base_path)

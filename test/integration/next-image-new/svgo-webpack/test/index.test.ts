@@ -15,7 +15,7 @@ let app
 let devOutput
 
   // Skip as this is a webpack specific test.
-;(process.env.TURBOPACK ? describe.skip : describe)(
+;(process.env.IS_TURBOPACK_TEST ? describe.skip : describe)(
   'svgo-webpack with Image Component',
   () => {
     ;(process.env.TURBOPACK_DEV ? describe.skip : describe)(
@@ -52,7 +52,7 @@ let devOutput
           await renderViaHTTP(appPort, '/', {})
           const errors = devOutput.stderr
             .split('\n')
-            .filter((line) => line && !line.trim().startsWith('⚠️'))
+            .filter((line) => line && !line.trim().startsWith('⚠'))
           expect(errors).toEqual([])
         })
       }

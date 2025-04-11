@@ -1,6 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use rustc_hash::FxHashMap;
 use turbo_rcstr::RcStr;
 use turbo_tasks::{fxindexmap, FxIndexMap, ResolvedVc, Value, Vc};
 use turbo_tasks_fs::{FileSystem, FileSystemPath};
@@ -120,6 +121,8 @@ pub async fn get_next_client_import_map(
             let react_flavor = if *next_config.enable_ppr().await?
                 || *next_config.enable_taint().await?
                 || *next_config.enable_react_owner_stack().await?
+                || *next_config.enable_view_transition().await?
+                || *next_config.enable_router_bfcache().await?
             {
                 "-experimental"
             } else {
@@ -206,6 +209,10 @@ pub async fn get_next_client_import_map(
                 "next/link",
                 request_to_import_mapping(project_path, "next/dist/client/app-dir/link"),
             );
+            import_map.insert_exact_alias(
+                "next/form",
+                request_to_import_mapping(project_path, "next/dist/client/app-dir/form"),
+            );
         }
         ClientContextType::Fallback => {}
         ClientContextType::Other => {}
@@ -238,37 +245,7 @@ pub async fn get_next_client_import_map(
     }
 
     insert_turbopack_dev_alias(&mut import_map).await?;
-
-    Ok(import_map.cell())
-}
-
-/// Computes the Next-specific client import map.
-#[turbo_tasks::function]
-pub async fn get_next_build_import_map() -> Result<Vc<ImportMap>> {
-    let mut import_map = ImportMap::empty();
-
-    insert_package_alias(
-        &mut import_map,
-        &format!("{VIRTUAL_PACKAGE_NAME}/"),
-        next_js_fs().root().to_resolved().await?,
-    );
-
-    let external = ImportMapping::External(None, ExternalType::CommonJs, ExternalTraced::Traced)
-        .resolved_cell();
-
-    import_map.insert_exact_alias("next", external);
-    import_map.insert_wildcard_alias("next/", external);
-    import_map.insert_exact_alias("styled-jsx", external);
-    import_map.insert_exact_alias(
-        "styled-jsx/style",
-        ImportMapping::External(
-            Some("styled-jsx/style.js".into()),
-            ExternalType::CommonJs,
-            ExternalTraced::Traced,
-        )
-        .resolved_cell(),
-    );
-    import_map.insert_wildcard_alias("styled-jsx/", external);
+    insert_instrumentation_client_alias(&mut import_map, project_path).await?;
 
     Ok(import_map.cell())
 }
@@ -372,7 +349,11 @@ pub async fn get_next_server_import_map(
             import_map.insert_exact_alias(
                 "next/link",
                 request_to_import_mapping(project_path, "next/dist/client/app-dir/link"),
-            )
+            );
+            import_map.insert_exact_alias(
+                "next/form",
+                request_to_import_mapping(project_path, "next/dist/client/app-dir/form"),
+            );
         }
         ServerContextType::Middleware { .. } | ServerContextType::Instrumentation { .. } => {}
     }
@@ -429,6 +410,7 @@ pub async fn get_next_edge_import_map(
             "next/headers" => "next/dist/api/headers".to_string(),
             "next/image" => "next/dist/api/image".to_string(),
             "next/link" => "next/dist/api/link".to_string(),
+            "next/form" => "next/dist/api/form".to_string(),
             "next/navigation" => "next/dist/api/navigation".to_string(),
             "next/router" => "next/dist/api/router".to_string(),
             "next/script" => "next/dist/api/script".to_string(),
@@ -719,7 +701,9 @@ async fn rsc_aliases(
     let ppr = *next_config.enable_ppr().await?;
     let taint = *next_config.enable_taint().await?;
     let react_owner_stack = *next_config.enable_react_owner_stack().await?;
-    let react_channel = if ppr || taint || react_owner_stack {
+    let router_bfcache = *next_config.enable_router_bfcache().await?;
+    let view_transition = *next_config.enable_view_transition().await?;
+    let react_channel = if ppr || taint || react_owner_stack || view_transition || router_bfcache {
         "-experimental"
     } else {
         ""
@@ -1049,7 +1033,7 @@ fn export_value_to_import_mapping(
     value.add_results(
         conditions,
         &ConditionValue::Unset,
-        &mut HashMap::new(),
+        &mut FxHashMap::default(),
         &mut result,
     );
     if result.is_empty() {
@@ -1128,6 +1112,26 @@ async fn insert_turbopack_dev_alias(import_map: &mut ImportMap) -> Result<()> {
             .to_resolved()
             .await?,
     );
+    Ok(())
+}
+
+/// Handles instrumentation-client.ts bundling logic
+async fn insert_instrumentation_client_alias(
+    import_map: &mut ImportMap,
+    project_path: ResolvedVc<FileSystemPath>,
+) -> Result<()> {
+    insert_alias_to_alternatives(
+        import_map,
+        "private-next-instrumentation-client",
+        vec![
+            request_to_import_mapping(project_path, "./src/instrumentation-client"),
+            request_to_import_mapping(project_path, "./src/instrumentation-client.ts"),
+            request_to_import_mapping(project_path, "./instrumentation-client"),
+            request_to_import_mapping(project_path, "./instrumentation-client.ts"),
+            ImportMapping::Ignore.resolved_cell(),
+        ],
+    );
+
     Ok(())
 }
 

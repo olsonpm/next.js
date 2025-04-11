@@ -195,9 +195,9 @@ export default async function webdriver(
   }
 
   // This is a temporary workaround for turbopack starting watching too late.
-  // So we delay file changes by 500ms to give it some time
+  // So we delay file changes to give it some time
   // to connect the WebSocket and start watching.
-  if (process.env.TURBOPACK) {
+  if (process.env.IS_TURBOPACK_TEST) {
     await waitFor(1000)
   }
   return browser

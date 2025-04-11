@@ -23,9 +23,9 @@ describe('custom server', () => {
   })
 
   describe('with app dir', () => {
-    it('should render app with react rc', async () => {
+    it('should render app with react canary', async () => {
       const $ = await next.render$(`/1`)
-      expect($('body').text()).toMatch(/app: .+-rc/)
+      expect($('body').text()).toMatch(/app: .+-canary/)
     })
 
     it('should render pages with installed react', async () => {
@@ -33,7 +33,7 @@ describe('custom server', () => {
       if (isReact18) {
         expect($('body').text()).toMatch(/pages: 18\.\d+\.\d+\{/)
       } else {
-        expect($('body').text()).toMatch(/pages: 19.0.0/)
+        expect($('body').text()).toMatch(/pages: 19\.\d+\.\d+/)
       }
     })
   })
