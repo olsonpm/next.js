@@ -34,7 +34,8 @@ const unsupportedTurbopackNextConfigOptions = [
     // This is used to force swc-loader to run regardless of finding Babel.
     'experimental.forceSwcTransforms',
     'experimental.fullySpecified',
-    'experimental.urlImports'
+    'experimental.urlImports',
+    'experimental.slowModuleDetection'
 ];
 // The following will need to be supported by `next build --turbopack`
 const unsupportedProductionSpecificTurbopackNextConfigOptions = [];
@@ -95,7 +96,7 @@ export async function validateTurboNextConfig({ dir, isDev }) {
             if (key.startsWith('webpack') && rawNextConfig.webpack) {
                 hasWebpackConfig = true;
             }
-            if (key.startsWith('experimental.turbo')) {
+            if (key.startsWith('turbopack')) {
                 hasTurboConfig = true;
             }
             let isUnsupported = unsupportedKeys.some((unsupportedKey)=>// Either the key matches (or is a more specific subkey) of
@@ -113,7 +114,7 @@ export async function validateTurboNextConfig({ dir, isDev }) {
     } catch (e) {
         Log.error('Unexpected error occurred while checking config', e);
     }
-    const feedbackMessage = `Learn more about Next.js and Turbopack: ${underline('https://nextjs.link/with-turbopack')}\n`;
+    const feedbackMessage = `Learn more about Next.js and Turbopack: ${underline('https://nextjs.org/docs/architecture/turbopack')}\n`;
     if (hasWebpackConfig && !hasTurboConfig) {
         Log.warn(`Webpack is configured while Turbopack is not, which may cause problems.`);
         Log.warn(`See instructions if you need to configure Turbopack:\n  https://nextjs.org/docs/app/api-reference/next-config-js/turbo\n`);

@@ -1,7 +1,7 @@
 import { CACHE_ONE_YEAR } from '../../../lib/constants';
 import { validateRevalidate, validateTags } from '../../lib/patch-fetch';
 import { workAsyncStorage } from '../../app-render/work-async-storage.external';
-import { workUnitAsyncStorage } from '../../app-render/work-unit-async-storage.external';
+import { getDraftModeProviderForCacheScope, workUnitAsyncStorage } from '../../app-render/work-unit-async-storage.external';
 import { CachedRouteKind, IncrementalCacheKind } from '../../response-cache';
 let noStoreFetchIdx = 0;
 async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalidate, fetchIdx, fetchUrl) {
@@ -16,7 +16,6 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
         },
         revalidate: typeof revalidate !== 'number' ? CACHE_ONE_YEAR : revalidate
     }, {
-        revalidate,
         fetchCache: true,
         tags,
         fetchIdx,
@@ -30,7 +29,11 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
  * Read more: [Next.js Docs: `unstable_cache`](https://nextjs.org/docs/app/api-reference/functions/unstable_cache)
  */ export function unstable_cache(cb, keyParts, options = {}) {
     if (options.revalidate === 0) {
-        throw new Error(`Invariant revalidate: 0 can not be passed to unstable_cache(), must be "false" or "> 0" ${cb.toString()}`);
+        throw Object.defineProperty(new Error(`Invariant revalidate: 0 can not be passed to unstable_cache(), must be "false" or "> 0" ${cb.toString()}`), "__NEXT_ERROR_CODE", {
+            value: "E57",
+            enumerable: false,
+            configurable: true
+        });
     }
     // Validate the tags provided are valid
     const tags = options.tags ? validateTags(options.tags, `unstable_cache ${cb.toString()}`) : [];
@@ -50,7 +53,11 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
         // We must be able to find the incremental cache otherwise we throw
         const maybeIncrementalCache = (workStore == null ? void 0 : workStore.incrementalCache) || globalThis.__incrementalCache;
         if (!maybeIncrementalCache) {
-            throw new Error(`Invariant: incrementalCache missing in unstable_cache ${cb.toString()}`);
+            throw Object.defineProperty(new Error(`Invariant: incrementalCache missing in unstable_cache ${cb.toString()}`), "__NEXT_ERROR_CODE", {
+                value: "E469",
+                enumerable: false,
+                configurable: true
+            });
         }
         const incrementalCache = maybeIncrementalCache;
         const cacheSignal = workUnitStore && workUnitStore.type === 'prerender' ? workUnitStore.cacheSignal : null;
@@ -79,6 +86,13 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
             // $urlWithPath,$sortedQueryStringKeys,$hashOfEveryThingElse
             const fetchUrl = `unstable_cache ${pathname}${sortedSearch.length ? '?' : ''}${sortedSearch} ${cb.name ? ` ${cb.name}` : cacheKey}`;
             const fetchIdx = (workStore ? workStore.nextFetchId : noStoreFetchIdx) ?? 1;
+            const implicitTags = workUnitStore == null ? void 0 : workUnitStore.implicitTags;
+            const innerCacheStore = {
+                type: 'unstable-cache',
+                phase: 'render',
+                implicitTags,
+                draftMode: workUnitStore && workStore && getDraftModeProviderForCacheScope(workStore, workUnitStore)
+            };
             if (workStore) {
                 workStore.nextFetchId = fetchIdx + 1;
                 // We are in an App Router context. We try to return the cached entry if it exists and is valid
@@ -108,7 +122,6 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
                         }
                     }
                 }
-                const implicitTags = !workUnitStore || workUnitStore.type === 'unstable-cache' ? [] : workUnitStore.implicitTags;
                 const isNestedUnstableCache = workUnitStore && workUnitStore.type === 'unstable-cache';
                 if (// when we are nested inside of other unstable_cache's
                 // we should bypass cache similar to fetches
@@ -118,10 +131,9 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
                         kind: IncrementalCacheKind.FETCH,
                         revalidate: options.revalidate,
                         tags,
-                        softTags: implicitTags,
+                        softTags: implicitTags == null ? void 0 : implicitTags.tags,
                         fetchIdx,
-                        fetchUrl,
-                        isFallback: false
+                        fetchUrl
                     });
                     if (cacheEntry && cacheEntry.value) {
                         // The entry exists and has a value
@@ -141,10 +153,6 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
                                 if (!workStore.pendingRevalidates) {
                                     workStore.pendingRevalidates = {};
                                 }
-                                const innerCacheStore = {
-                                    type: 'unstable-cache',
-                                    phase: 'render'
-                                };
                                 // We run the cache function asynchronously and save the result when it completes
                                 workStore.pendingRevalidates[invocationKey] = workUnitAsyncStorage.run(innerCacheStore, cb, ...args).then((result)=>{
                                     return cacheNewResult(result, incrementalCache, cacheKey, tags, options.revalidate, fetchIdx, fetchUrl);
@@ -156,10 +164,6 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
                         }
                     }
                 }
-                const innerCacheStore = {
-                    type: 'unstable-cache',
-                    phase: 'render'
-                };
                 // If we got this far then we had an invalid cache entry and need to generate a new one
                 const result = await workUnitAsyncStorage.run(innerCacheStore, cb, ...args);
                 if (!workStore.isDraftMode) {
@@ -174,15 +178,13 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
                 // the background. If the entry is missing or invalid we generate a new entry and return it.
                 if (!incrementalCache.isOnDemandRevalidate) {
                     // We aren't doing an on demand revalidation so we check use the cache if valid
-                    const implicitTags = !workUnitStore || workUnitStore.type === 'unstable-cache' ? [] : workUnitStore.implicitTags;
                     const cacheEntry = await incrementalCache.get(cacheKey, {
                         kind: IncrementalCacheKind.FETCH,
                         revalidate: options.revalidate,
                         tags,
                         fetchIdx,
                         fetchUrl,
-                        softTags: implicitTags,
-                        isFallback: false
+                        softTags: implicitTags == null ? void 0 : implicitTags.tags
                     });
                     if (cacheEntry && cacheEntry.value) {
                         // The entry exists and has a value
@@ -198,10 +200,6 @@ async function cacheNewResult(result, incrementalCache, cacheKey, tags, revalida
                         }
                     }
                 }
-                const innerCacheStore = {
-                    type: 'unstable-cache',
-                    phase: 'render'
-                };
                 // If we got this far then we had an invalid cache entry and need to generate a new one
                 const result = await workUnitAsyncStorage.run(innerCacheStore, cb, ...args);
                 cacheNewResult(result, incrementalCache, cacheKey, tags, options.revalidate, fetchIdx, fetchUrl);

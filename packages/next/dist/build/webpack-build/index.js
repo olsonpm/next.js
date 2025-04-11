@@ -15,6 +15,8 @@ const _debug = /*#__PURE__*/ _interop_require_default(require("next/dist/compile
 const _path = /*#__PURE__*/ _interop_require_default(require("path"));
 const _trace = require("../../trace");
 const _utils = require("../../server/lib/utils");
+const _usecachetrackerutils = require("../webpack/plugins/telemetry-plugin/use-cache-tracker-utils");
+const _durationtostring = require("../duration-to-string");
 function _interop_require_default(obj) {
     return obj && obj.__esModule ? obj : {
         default: obj
@@ -124,7 +126,11 @@ async function webpackBuildWithWorker(compilerNamesArg) {
         pluginState = deepMerge(pluginState, curResult.pluginState);
         prunedBuildContext.pluginState = pluginState;
         if (curResult.telemetryState) {
-            _buildcontext.NextBuildContext.telemetryState = curResult.telemetryState;
+            var _NextBuildContext_telemetryState;
+            _buildcontext.NextBuildContext.telemetryState = {
+                ...curResult.telemetryState,
+                useCacheTracker: (0, _usecachetrackerutils.mergeUseCacheTrackers)((_NextBuildContext_telemetryState = _buildcontext.NextBuildContext.telemetryState) == null ? void 0 : _NextBuildContext_telemetryState.useCacheTracker, curResult.telemetryState.useCacheTracker)
+            };
         }
         combinedResult.duration += curResult.duration;
         if ((_curResult_buildTraceContext = curResult.buildTraceContext) == null ? void 0 : _curResult_buildTraceContext.entriesTrace) {
@@ -144,18 +150,28 @@ async function webpackBuildWithWorker(compilerNamesArg) {
         }
     }
     if (compilerNames.length === 3) {
-        _log.event('Compiled successfully');
+        const durationString = (0, _durationtostring.durationToString)(combinedResult.duration);
+        _log.event(`Compiled successfully in ${durationString}`);
     }
     return combinedResult;
 }
-function webpackBuild(withWorker, compilerNames) {
+async function webpackBuild(withWorker, compilerNames) {
     if (withWorker) {
         debug('using separate compiler workers');
-        return webpackBuildWithWorker(compilerNames);
+        return await webpackBuildWithWorker(compilerNames);
     } else {
         debug('building all compilers in same process');
         const webpackBuildImpl = require('./impl').webpackBuildImpl;
-        return webpackBuildImpl(null, null);
+        const curResult = await webpackBuildImpl(null, null);
+        // Mirror what happens in webpackBuildWithWorker
+        if (curResult.telemetryState) {
+            var _NextBuildContext_telemetryState;
+            _buildcontext.NextBuildContext.telemetryState = {
+                ...curResult.telemetryState,
+                useCacheTracker: (0, _usecachetrackerutils.mergeUseCacheTrackers)((_NextBuildContext_telemetryState = _buildcontext.NextBuildContext.telemetryState) == null ? void 0 : _NextBuildContext_telemetryState.useCacheTracker, curResult.telemetryState.useCacheTracker)
+            };
+        }
+        return curResult;
     }
 }
 

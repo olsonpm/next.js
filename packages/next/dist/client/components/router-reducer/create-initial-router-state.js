@@ -16,14 +16,13 @@ const _routerreducertypes = require("./router-reducer-types");
 const _refetchinactiveparallelsegments = require("./refetch-inactive-parallel-segments");
 const _flightdatahelpers = require("../../flight-data-helpers");
 function createInitialRouterState(param) {
-    let { initialFlightData, initialCanonicalUrlParts, initialParallelRoutes, location, couldBeIntercepted, postponed, prerendered } = param;
+    let { navigatedAt, initialFlightData, initialCanonicalUrlParts, initialParallelRoutes, location, couldBeIntercepted, postponed, prerendered } = param;
     // When initialized on the server, the canonical URL is provided as an array of parts.
     // This is to ensure that when the RSC payload streamed to the client, crawlers don't interpret it
     // as a URL that should be crawled.
     const initialCanonicalUrl = initialCanonicalUrlParts.join('/');
     const normalizedFlightData = (0, _flightdatahelpers.getFlightDataPartsFromPath)(initialFlightData[0]);
     const { tree: initialTree, seedData: initialSeedData, head: initialHead } = normalizedFlightData;
-    const isServer = !location;
     // For the SSR render, seed data should always be available (we only send back a `null` response
     // in the case of a `loading` segment, pre-PPR.)
     const rsc = initialSeedData == null ? void 0 : initialSeedData[1];
@@ -36,8 +35,9 @@ function createInitialRouterState(param) {
         head: null,
         prefetchHead: null,
         // The cache gets seeded during the first render. `initialParallelRoutes` ensures the cache from the first render is there during the second render.
-        parallelRoutes: isServer ? new Map() : initialParallelRoutes,
-        loading
+        parallelRoutes: initialParallelRoutes,
+        loading,
+        navigatedAt
     };
     const canonicalUrl = // location.href is read as the initial value for canonicalUrl in the browser
     // This is safe to do as canonicalUrl can't be rendered, it's only used to control the history updates in the useEffect further down in this file.
@@ -46,7 +46,7 @@ function createInitialRouterState(param) {
     const prefetchCache = new Map();
     // When the cache hasn't been seeded yet we fill the cache with the head.
     if (initialParallelRoutes === null || initialParallelRoutes.size === 0) {
-        (0, _filllazyitemstillleafwithhead.fillLazyItemsTillLeafWithHead)(cache, undefined, initialTree, initialSeedData, initialHead);
+        (0, _filllazyitemstillleafwithhead.fillLazyItemsTillLeafWithHead)(navigatedAt, cache, undefined, initialTree, initialSeedData, initialHead, undefined);
     }
     var // the || operator is intentional, the pathname can be an empty string
     _ref;

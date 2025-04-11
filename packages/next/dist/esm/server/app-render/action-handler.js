@@ -5,7 +5,7 @@ import { isRedirectError } from '../../client/components/redirect-error';
 import RenderResult from '../render-result';
 import { FlightRenderResult } from './flight-render-result';
 import { filterReqHeaders, actionsForbiddenHeaders } from '../lib/server-ipc/utils';
-import { appendMutableCookies, getModifiedCookieValues } from '../web/spec-extension/adapters/request-cookies';
+import { getModifiedCookieValues } from '../web/spec-extension/adapters/request-cookies';
 import { NEXT_CACHE_REVALIDATED_TAGS_HEADER, NEXT_CACHE_REVALIDATE_TAG_TOKEN_HEADER } from '../../lib/constants';
 import { getServerActionRequestMetadata } from '../lib/server-action-request-meta';
 import { isCsrfOriginAllowed } from './csrf-protection';
@@ -18,6 +18,8 @@ import { isNodeNextRequest, isWebNextRequest } from '../base-http/helpers';
 import { RedirectStatusCode } from '../../client/components/redirect-status-code';
 import { synchronizeMutableCookies } from '../async-storage/request-store';
 import { workUnitAsyncStorage } from '../app-render/work-unit-async-storage.external';
+import { InvariantError } from '../../shared/lib/invariant-error';
+import { executeRevalidates } from '../revalidation-utils';
 function formDataFromSearchQueryString(query) {
     const searchParams = new URLSearchParams(query);
     const formData = new FormData();
@@ -62,13 +64,8 @@ function getForwardedHeaders(req, res) {
     delete mergedHeaders['transfer-encoding'];
     return new Headers(mergedHeaders);
 }
-async function addRevalidationHeader(res, { workStore, requestStore }) {
-    var _workStore_incrementalCache, _workStore_revalidatedTags;
-    await Promise.all([
-        (_workStore_incrementalCache = workStore.incrementalCache) == null ? void 0 : _workStore_incrementalCache.revalidateTag(workStore.revalidatedTags || []),
-        ...Object.values(workStore.pendingRevalidates || {}),
-        ...workStore.pendingRevalidateWrites || []
-    ]);
+function addRevalidationHeader(res, { workStore, requestStore }) {
+    var _workStore_pendingRevalidatedTags;
     // If a tag was revalidated, the client router needs to invalidate all the
     // client router cache as they may be stale. And if a path was revalidated, the
     // client needs to invalidate all subtrees below that path.
@@ -79,7 +76,7 @@ async function addRevalidationHeader(res, { workStore, requestStore }) {
     // so we need to invalidate the entire cache if a path was revalidated.
     // TODO-APP: Currently paths are treated as tags, so the second element of the tuple
     // is always empty.
-    const isTagRevalidated = ((_workStore_revalidatedTags = workStore.revalidatedTags) == null ? void 0 : _workStore_revalidatedTags.length) ? 1 : 0;
+    const isTagRevalidated = ((_workStore_pendingRevalidatedTags = workStore.pendingRevalidatedTags) == null ? void 0 : _workStore_pendingRevalidatedTags.length) ? 1 : 0;
     const isCookieRevalidated = getModifiedCookieValues(requestStore.mutableCookies).length ? 1 : 0;
     res.setHeader('x-action-revalidated', JSON.stringify([
         [],
@@ -92,7 +89,11 @@ async function addRevalidationHeader(res, { workStore, requestStore }) {
  */ async function createForwardedActionResponse(req, res, host, workerPathname, basePath, workStore) {
     var _workStore_incrementalCache;
     if (!host) {
-        throw new Error('Invariant: Missing `host` header from a forwarded Server Actions request.');
+        throw Object.defineProperty(new Error('Invariant: Missing `host` header from a forwarded Server Actions request.'), "__NEXT_ERROR_CODE", {
+            value: "E226",
+            enumerable: false,
+            configurable: true
+        });
     }
     const forwardedHeaders = getForwardedHeaders(req, res);
     // indicate that this action request was forwarded from another worker
@@ -111,7 +112,11 @@ async function addRevalidationHeader(res, { workStore, requestStore }) {
         // environment variable check provides dead code elimination.
         process.env.NEXT_RUNTIME === 'edge' && isWebNextRequest(req)) {
             if (!req.body) {
-                throw new Error('Invariant: missing request body.');
+                throw Object.defineProperty(new Error('Invariant: missing request body.'), "__NEXT_ERROR_CODE", {
+                    value: "E333",
+                    enumerable: false,
+                    configurable: true
+                });
             }
             body = req.body;
         } else if (// The type check here ensures that `req` is correctly typed, and the
@@ -119,7 +124,11 @@ async function addRevalidationHeader(res, { workStore, requestStore }) {
         process.env.NEXT_RUNTIME !== 'edge' && isNodeNextRequest(req)) {
             body = req.stream();
         } else {
-            throw new Error('Invariant: Unknown request type.');
+            throw Object.defineProperty(new Error('Invariant: Unknown request type.'), "__NEXT_ERROR_CODE", {
+                value: "E114",
+                enumerable: false,
+                configurable: true
+            });
         }
         // Forward the request to the new worker
         const response = await fetch(fetchUrl, {
@@ -182,7 +191,11 @@ async function createRedirectRenderResult(req, res, originalHost, redirectUrl, r
     if (appRelativeRedirectUrl) {
         var _workStore_incrementalCache;
         if (!originalHost) {
-            throw new Error('Invariant: Missing `host` header from a forwarded Server Actions request.');
+            throw Object.defineProperty(new Error('Invariant: Missing `host` header from a forwarded Server Actions request.'), "__NEXT_ERROR_CODE", {
+                value: "E226",
+                enumerable: false,
+                configurable: true
+            });
         }
         const forwardedHeaders = getForwardedHeaders(req, res);
         forwardedHeaders.set(RSC_HEADER, '1');
@@ -191,9 +204,9 @@ async function createRedirectRenderResult(req, res, originalHost, redirectUrl, r
         // other than the host headers from the request.
         const origin = process.env.__NEXT_PRIVATE_ORIGIN || `${proto}://${originalHost.value}`;
         const fetchUrl = new URL(`${origin}${appRelativeRedirectUrl.pathname}${appRelativeRedirectUrl.search}`);
-        if (workStore.revalidatedTags) {
+        if (workStore.pendingRevalidatedTags) {
             var _workStore_incrementalCache_prerenderManifest_preview, _workStore_incrementalCache_prerenderManifest, _workStore_incrementalCache1;
-            forwardedHeaders.set(NEXT_CACHE_REVALIDATED_TAGS_HEADER, workStore.revalidatedTags.join(','));
+            forwardedHeaders.set(NEXT_CACHE_REVALIDATED_TAGS_HEADER, workStore.pendingRevalidatedTags.join(','));
             forwardedHeaders.set(NEXT_CACHE_REVALIDATE_TAG_TOKEN_HEADER, ((_workStore_incrementalCache1 = workStore.incrementalCache) == null ? void 0 : (_workStore_incrementalCache_prerenderManifest = _workStore_incrementalCache1.prerenderManifest) == null ? void 0 : (_workStore_incrementalCache_prerenderManifest_preview = _workStore_incrementalCache_prerenderManifest.preview) == null ? void 0 : _workStore_incrementalCache_prerenderManifest_preview.previewModeId) || '');
         }
         // Ensures that when the path was revalidated we don't return a partial response on redirects
@@ -237,16 +250,44 @@ async function createRedirectRenderResult(req, res, originalHost, redirectUrl, r
  */ function limitUntrustedHeaderValueForLogs(value) {
     return value.length > 100 ? value.slice(0, 100) + '...' : value;
 }
+export function parseHostHeader(headers, originDomain) {
+    var _forwardedHostHeader_split_, _forwardedHostHeader_split;
+    const forwardedHostHeader = headers['x-forwarded-host'];
+    const forwardedHostHeaderValue = forwardedHostHeader && Array.isArray(forwardedHostHeader) ? forwardedHostHeader[0] : forwardedHostHeader == null ? void 0 : (_forwardedHostHeader_split = forwardedHostHeader.split(',')) == null ? void 0 : (_forwardedHostHeader_split_ = _forwardedHostHeader_split[0]) == null ? void 0 : _forwardedHostHeader_split_.trim();
+    const hostHeader = headers['host'];
+    if (originDomain) {
+        return forwardedHostHeaderValue === originDomain ? {
+            type: "x-forwarded-host",
+            value: forwardedHostHeaderValue
+        } : hostHeader === originDomain ? {
+            type: "host",
+            value: hostHeader
+        } : undefined;
+    }
+    return forwardedHostHeaderValue ? {
+        type: "x-forwarded-host",
+        value: forwardedHostHeaderValue
+    } : hostHeader ? {
+        type: "host",
+        value: hostHeader
+    } : undefined;
+}
 export async function handleAction({ req, res, ComponentMod, serverModuleMap, generateFlight, workStore, requestStore, serverActions, ctx }) {
     const contentType = req.headers['content-type'];
     const { serverActionsManifest, page } = ctx.renderOpts;
-    const { actionId, isURLEncodedAction, isMultipartAction, isFetchAction, isServerAction } = getServerActionRequestMetadata(req);
-    // If it's not a Server Action, skip handling.
-    if (!isServerAction) {
+    const { actionId, isURLEncodedAction, isMultipartAction, isFetchAction, isPossibleServerAction } = getServerActionRequestMetadata(req);
+    // If it can't be a Server Action, skip handling.
+    // Note that this can be a false positive -- any multipart/urlencoded POST can get us here,
+    // But won't know if it's an MPA action or not until we call `decodeAction` below.
+    if (!isPossibleServerAction) {
         return;
     }
     if (workStore.isStaticGeneration) {
-        throw new Error("Invariant: server actions can't be handled during static rendering");
+        throw Object.defineProperty(new Error("Invariant: server actions can't be handled during static rendering"), "__NEXT_ERROR_CODE", {
+            value: "E359",
+            enumerable: false,
+            configurable: true
+        });
     }
     let temporaryReferences;
     const finalizeAndGenerateFlight = (...args)=>{
@@ -255,22 +296,15 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
         // We want the render to see any cookie writes that we performed during the action,
         // so we need to update the immutable cookies to reflect the changes.
         synchronizeMutableCookies(requestStore);
-        requestStore.phase = 'render';
+        // The server action might have toggled draft mode, so we need to reflect
+        // that in the work store to be up-to-date for subsequent rendering.
+        workStore.isDraftMode = requestStore.draftMode.isEnabled;
         return generateFlight(...args);
     };
-    requestStore.phase = 'action';
     // When running actions the default is no-store, you can still `cache: 'force-cache'`
     workStore.fetchCache = 'default-no-store';
     const originDomain = typeof req.headers['origin'] === 'string' ? new URL(req.headers['origin']).host : undefined;
-    const forwardedHostHeader = req.headers['x-forwarded-host'];
-    const hostHeader = req.headers['host'];
-    const host = forwardedHostHeader ? {
-        type: "x-forwarded-host",
-        value: forwardedHostHeader
-    } : hostHeader ? {
-        type: "host",
-        value: hostHeader
-    } : undefined;
+    const host = parseHostHeader(req.headers);
     let warning = undefined;
     function warnBadServerActionRequest() {
         if (warning) {
@@ -297,15 +331,14 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
                 // This is an attack. We should not proceed the action.
                 console.error(`\`x-forwarded-host\` or \`host\` headers are not provided. One of these is needed to compare the \`origin\` header from a forwarded Server Actions request. Aborting the action.`);
             }
-            const error = new Error('Invalid Server Actions request.');
+            const error = Object.defineProperty(new Error('Invalid Server Actions request.'), "__NEXT_ERROR_CODE", {
+                value: "E80",
+                enumerable: false,
+                configurable: true
+            });
             if (isFetchAction) {
-                var _workStore_incrementalCache;
                 res.statusCode = 500;
-                await Promise.all([
-                    (_workStore_incrementalCache = workStore.incrementalCache) == null ? void 0 : _workStore_incrementalCache.revalidateTag(workStore.revalidatedTags || []),
-                    ...Object.values(workStore.pendingRevalidates || {}),
-                    ...workStore.pendingRevalidateWrites || []
-                ]);
+                await executeRevalidates(workStore);
                 const promise = Promise.reject(error);
                 try {
                     // we need to await the promise to trigger the rejection early
@@ -356,7 +389,11 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
             // environment variable check provides dead code elimination.
             process.env.NEXT_RUNTIME === 'edge' && isWebNextRequest(req)) {
                 if (!req.body) {
-                    throw new Error('invariant: Missing request body.');
+                    throw Object.defineProperty(new Error('invariant: Missing request body.'), "__NEXT_ERROR_CODE", {
+                        value: "E364",
+                        enumerable: false,
+                        configurable: true
+                    });
                 }
                 // TODO: add body limit
                 // Use react-server-dom-webpack/server.edge
@@ -374,8 +411,14 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
                         if (typeof action === 'function') {
                             // Only warn if it's a server action, otherwise skip for other post requests
                             warnBadServerActionRequest();
-                            const actionReturnedState = await action();
-                            formState = decodeFormState(actionReturnedState, formData, serverModuleMap);
+                            let actionReturnedState;
+                            requestStore.phase = 'action';
+                            try {
+                                actionReturnedState = await workUnitAsyncStorage.run(requestStore, action);
+                            } finally{
+                                requestStore.phase = 'render';
+                            }
+                            formState = await decodeFormState(actionReturnedState, formData, serverModuleMap);
                         }
                         // Skip the fetch path
                         return;
@@ -391,15 +434,16 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
                             type: 'not-found'
                         };
                     }
-                    let actionData = '';
+                    const chunks = [];
                     const reader = req.body.getReader();
                     while(true){
                         const { done, value } = await reader.read();
                         if (done) {
                             break;
                         }
-                        actionData += new TextDecoder().decode(value);
+                        chunks.push(value);
                     }
+                    const actionData = Buffer.concat(chunks).toString('utf-8');
                     if (isURLEncodedAction) {
                         const formData = formDataFromSearchQueryString(actionData);
                         boundActionArguments = await decodeReply(formData, serverModuleMap, {
@@ -428,8 +472,12 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
                         size += Buffer.byteLength(chunk, encoding);
                         if (size > bodySizeLimitBytes) {
                             const { ApiError } = require('../api-utils');
-                            callback(new ApiError(413, `Body exceeded ${bodySizeLimit} limit.
-                To configure the body size limit for Server Actions, see: https://nextjs.org/docs/app/api-reference/next-config-js/serverActions#bodysizelimit`));
+                            callback(Object.defineProperty(new ApiError(413, `Body exceeded ${bodySizeLimit} limit.
+                To configure the body size limit for Server Actions, see: https://nextjs.org/docs/app/api-reference/next-config-js/serverActions#bodysizelimit`), "__NEXT_ERROR_CODE", {
+                                value: "E394",
+                                enumerable: false,
+                                configurable: true
+                            }));
                             return;
                         }
                         callback(null, chunk);
@@ -477,7 +525,13 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
                         if (typeof action === 'function') {
                             // Only warn if it's a server action, otherwise skip for other post requests
                             warnBadServerActionRequest();
-                            const actionReturnedState = await action();
+                            let actionReturnedState;
+                            requestStore.phase = 'action';
+                            try {
+                                actionReturnedState = await workUnitAsyncStorage.run(requestStore, action);
+                            } finally{
+                                requestStore.phase = 'render';
+                            }
                             formState = await decodeFormState(actionReturnedState, formData, serverModuleMap);
                         }
                         // Skip the fetch path
@@ -511,7 +565,11 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
                     }
                 }
             } else {
-                throw new Error('Invariant: Unknown request type.');
+                throw Object.defineProperty(new Error('Invariant: Unknown request type.'), "__NEXT_ERROR_CODE", {
+                    value: "E114",
+                    enumerable: false,
+                    configurable: true
+                });
             }
             // actions.js
             // app/page.js
@@ -532,12 +590,20 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
                     type: 'not-found'
                 };
             }
-            const actionHandler = (await ComponentMod.__next_app__.require(actionModId))[// `actionId` must exist if we got here, as otherwise we would have thrown an error above
+            const actionMod = await ComponentMod.__next_app__.require(actionModId);
+            const actionHandler = actionMod[// `actionId` must exist if we got here, as otherwise we would have thrown an error above
             actionId];
-            const returnVal = await workUnitAsyncStorage.run(requestStore, ()=>actionHandler.apply(null, boundActionArguments));
+            let returnVal;
+            requestStore.phase = 'action';
+            try {
+                returnVal = await workUnitAsyncStorage.run(requestStore, ()=>actionHandler.apply(null, boundActionArguments));
+            } finally{
+                requestStore.phase = 'render';
+            }
             // For form actions, we need to continue rendering the page.
             if (isFetchAction) {
-                await addRevalidationHeader(res, {
+                await executeRevalidates(workStore);
+                addRevalidationHeader(res, {
                     workStore,
                     requestStore
                 });
@@ -558,7 +624,8 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
         if (isRedirectError(err)) {
             const redirectUrl = getURLFromRedirectError(err);
             const redirectType = getRedirectTypeFromError(err);
-            await addRevalidationHeader(res, {
+            await executeRevalidates(workStore);
+            addRevalidationHeader(res, {
                 workStore,
                 requestStore
             });
@@ -571,12 +638,6 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
                     result: await createRedirectRenderResult(req, res, host, redirectUrl, redirectType, ctx.renderOpts.basePath, workStore)
                 };
             }
-            // If there were mutable cookies set, we need to set them on the
-            // response.
-            const headers = new Headers();
-            if (appendMutableCookies(headers, requestStore.mutableCookies)) {
-                res.setHeader('set-cookie', Array.from(headers.values()));
-            }
             res.setHeader('Location', redirectUrl);
             return {
                 type: 'done',
@@ -584,7 +645,8 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
             };
         } else if (isHTTPAccessFallbackError(err)) {
             res.statusCode = getAccessFallbackHTTPStatus(err);
-            await addRevalidationHeader(res, {
+            await executeRevalidates(workStore);
+            addRevalidationHeader(res, {
                 workStore,
                 requestStore
             });
@@ -613,13 +675,8 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
             };
         }
         if (isFetchAction) {
-            var _workStore_incrementalCache1;
             res.statusCode = 500;
-            await Promise.all([
-                (_workStore_incrementalCache1 = workStore.incrementalCache) == null ? void 0 : _workStore_incrementalCache1.revalidateTag(workStore.revalidatedTags || []),
-                ...Object.values(workStore.pendingRevalidates || {}),
-                ...workStore.pendingRevalidateWrites || []
-            ]);
+            await executeRevalidates(workStore);
             const promise = Promise.reject(err);
             try {
                 // we need to await the promise to trigger the rejection early
@@ -630,7 +687,6 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
             } catch  {
             // swallow error, it's gonna be handled on the client
             }
-            requestStore.phase = 'render';
             return {
                 type: 'done',
                 result: await generateFlight(req, ctx, requestStore, {
@@ -649,20 +705,24 @@ export async function handleAction({ req, res, ComponentMod, serverModuleMap, ge
  * the action came from a different deployment. It could also simply be an invalid POST request that is not a server action.
  * In either case, we'll throw an error to be handled by the caller.
  */ function getActionModIdOrError(actionId, serverModuleMap) {
-    try {
-        var _serverModuleMap_actionId;
-        // if we're missing the action ID header, we can't do any further processing
-        if (!actionId) {
-            throw new Error("Invariant: Missing 'next-action' header.");
-        }
-        const actionModId = serverModuleMap == null ? void 0 : (_serverModuleMap_actionId = serverModuleMap[actionId]) == null ? void 0 : _serverModuleMap_actionId.id;
-        if (!actionModId) {
-            throw new Error("Invariant: Couldn't find action module ID from module map.");
-        }
-        return actionModId;
-    } catch (err) {
-        throw new Error(`Failed to find Server Action "${actionId}". This request might be from an older or newer deployment. ${err instanceof Error ? `Original error: ${err.message}` : ''}`);
+    var _serverModuleMap_actionId;
+    // if we're missing the action ID header, we can't do any further processing
+    if (!actionId) {
+        throw Object.defineProperty(new InvariantError("Missing 'next-action' header."), "__NEXT_ERROR_CODE", {
+            value: "E664",
+            enumerable: false,
+            configurable: true
+        });
     }
+    const actionModId = (_serverModuleMap_actionId = serverModuleMap[actionId]) == null ? void 0 : _serverModuleMap_actionId.id;
+    if (!actionModId) {
+        throw Object.defineProperty(new Error(`Failed to find Server Action "${actionId}". This request might be from an older or newer deployment.\nRead more: https://nextjs.org/docs/messages/failed-to-find-server-action`), "__NEXT_ERROR_CODE", {
+            value: "E665",
+            enumerable: false,
+            configurable: true
+        });
+    }
+    return actionModId;
 }
 
 //# sourceMappingURL=action-handler.js.map

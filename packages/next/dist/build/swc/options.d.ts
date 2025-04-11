@@ -26,13 +26,18 @@ export declare function getJestSWCOptions({ isServer, filename, esm, modularizeI
     disableNextSsg: boolean;
     disablePageConfig: boolean;
     pagesDir: string | undefined;
+    cssEnv?: {
+        targets: string[];
+    } | undefined;
     serverComponents: {
         isReactServerLayer: boolean;
         dynamicIoEnabled: boolean | undefined;
+        useCacheEnabled: boolean | undefined;
     } | undefined;
     serverActions: {
         isReactServerLayer: boolean;
-        dynamicIoEnabled: boolean | undefined;
+        isDevelopment: boolean;
+        useCacheEnabled: boolean | undefined;
         hashSalt: string;
         cacheKinds: string[];
     } | undefined;
@@ -128,9 +133,13 @@ export declare function getJestSWCOptions({ isServer, filename, esm, modularizeI
         language?: "typescript" | "javascript" | "flow";
         eagerEsModules?: boolean;
     } | undefined;
-    styledJsx: {};
+    styledJsx: boolean | {
+        useLightningcss?: boolean;
+    } | {
+        useLightningcss: any;
+    };
 };
-export declare function getLoaderSWCOptions({ filename, development, isServer, pagesDir, appDir, isPageFile, isDynamicIo, hasReactRefresh, modularizeImports, optimizeServerReact, optimizePackageImports, swcPlugins, compilerOptions, jsConfig, supportedBrowsers, swcCacheDir, relativeFilePathFromRoot, serverComponents, serverReferenceHashSalt, bundleLayer, esm, cacheHandlers, }: {
+export declare function getLoaderSWCOptions({ filename, development, isServer, pagesDir, appDir, isPageFile, isDynamicIo, hasReactRefresh, modularizeImports, optimizeServerReact, optimizePackageImports, swcPlugins, compilerOptions, jsConfig, supportedBrowsers, swcCacheDir, relativeFilePathFromRoot, serverComponents, serverReferenceHashSalt, bundleLayer, esm, cacheHandlers, useCacheEnabled, }: {
     filename: string;
     development: boolean;
     isServer: boolean;
@@ -153,4 +162,5 @@ export declare function getLoaderSWCOptions({ filename, development, isServer, p
     serverReferenceHashSalt: string;
     bundleLayer?: WebpackLayerName;
     cacheHandlers: ExperimentalConfig['cacheHandlers'];
+    useCacheEnabled?: boolean;
 }): any;

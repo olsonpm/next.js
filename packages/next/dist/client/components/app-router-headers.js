@@ -6,8 +6,11 @@ Object.defineProperty(exports, "__esModule", {
     ACTION_HEADER: null,
     FLIGHT_HEADERS: null,
     NEXT_DID_POSTPONE_HEADER: null,
+    NEXT_HMR_REFRESH_HASH_COOKIE: null,
     NEXT_HMR_REFRESH_HEADER: null,
     NEXT_IS_PRERENDER_HEADER: null,
+    NEXT_REWRITTEN_PATH_HEADER: null,
+    NEXT_REWRITTEN_QUERY_HEADER: null,
     NEXT_ROUTER_PREFETCH_HEADER: null,
     NEXT_ROUTER_SEGMENT_PREFETCH_HEADER: null,
     NEXT_ROUTER_STALE_TIME_HEADER: null,
@@ -33,11 +36,20 @@ _export(exports, {
     NEXT_DID_POSTPONE_HEADER: function() {
         return NEXT_DID_POSTPONE_HEADER;
     },
+    NEXT_HMR_REFRESH_HASH_COOKIE: function() {
+        return NEXT_HMR_REFRESH_HASH_COOKIE;
+    },
     NEXT_HMR_REFRESH_HEADER: function() {
         return NEXT_HMR_REFRESH_HEADER;
     },
     NEXT_IS_PRERENDER_HEADER: function() {
         return NEXT_IS_PRERENDER_HEADER;
+    },
+    NEXT_REWRITTEN_PATH_HEADER: function() {
+        return NEXT_REWRITTEN_PATH_HEADER;
+    },
+    NEXT_REWRITTEN_QUERY_HEADER: function() {
+        return NEXT_REWRITTEN_QUERY_HEADER;
     },
     NEXT_ROUTER_PREFETCH_HEADER: function() {
         return NEXT_ROUTER_PREFETCH_HEADER;
@@ -70,6 +82,7 @@ const NEXT_ROUTER_STATE_TREE_HEADER = 'Next-Router-State-Tree';
 const NEXT_ROUTER_PREFETCH_HEADER = 'Next-Router-Prefetch';
 const NEXT_ROUTER_SEGMENT_PREFETCH_HEADER = 'Next-Router-Segment-Prefetch';
 const NEXT_HMR_REFRESH_HEADER = 'Next-HMR-Refresh';
+const NEXT_HMR_REFRESH_HASH_COOKIE = '__next_hmr_refresh_hash__';
 const NEXT_URL = 'Next-Url';
 const RSC_CONTENT_TYPE_HEADER = 'text/x-component';
 const FLIGHT_HEADERS = [
@@ -82,6 +95,8 @@ const FLIGHT_HEADERS = [
 const NEXT_RSC_UNION_QUERY = '_rsc';
 const NEXT_ROUTER_STALE_TIME_HEADER = 'x-nextjs-stale-time';
 const NEXT_DID_POSTPONE_HEADER = 'x-nextjs-postponed';
+const NEXT_REWRITTEN_PATH_HEADER = 'x-nextjs-rewritten-path';
+const NEXT_REWRITTEN_QUERY_HEADER = 'x-nextjs-rewritten-query';
 const NEXT_IS_PRERENDER_HEADER = 'x-nextjs-prerender';
 
 if ((typeof exports.default === 'function' || (typeof exports.default === 'object' && exports.default !== null)) && typeof exports.default.__esModule === 'undefined') {

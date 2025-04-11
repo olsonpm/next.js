@@ -5,6 +5,8 @@ import type { NextRequest } from '../web/spec-extension/request';
 import type { __ApiPreviewProps } from '../api-utils';
 import type { ServerComponentsHmrCache } from '../response-cache';
 import type { RenderResumeDataCache } from '../resume-data-cache/resume-data-cache';
+import type { Params } from '../request/params';
+import type { ImplicitTags } from '../lib/implicit-tags';
 export type WrapperRenderOpts = Partial<Pick<RenderOpts, 'onUpdateCookies'>> & {
     previewProps?: __ApiPreviewProps;
 };
@@ -29,7 +31,7 @@ type RequestContext = RequestResponsePair & {
     renderOpts?: WrapperRenderOpts;
     isHmrRefresh?: boolean;
     serverComponentsHmrCache?: ServerComponentsHmrCache;
-    implicitTags?: string[] | undefined;
+    implicitTags: ImplicitTags;
 };
 type RequestResponsePair = {
     req: BaseNextRequest;
@@ -38,7 +40,7 @@ type RequestResponsePair = {
     req: NextRequest;
     res: undefined;
 };
-export declare function createRequestStoreForRender(req: RequestContext['req'], res: RequestContext['res'], url: RequestContext['url'], implicitTags: RequestContext['implicitTags'], onUpdateCookies: RenderOpts['onUpdateCookies'], previewProps: WrapperRenderOpts['previewProps'], isHmrRefresh: RequestContext['isHmrRefresh'], serverComponentsHmrCache: RequestContext['serverComponentsHmrCache'], renderResumeDataCache: RenderResumeDataCache | undefined): RequestStore;
+export declare function createRequestStoreForRender(req: RequestContext['req'], res: RequestContext['res'], url: RequestContext['url'], rootParams: Params, implicitTags: RequestContext['implicitTags'], onUpdateCookies: RenderOpts['onUpdateCookies'], previewProps: WrapperRenderOpts['previewProps'], isHmrRefresh: RequestContext['isHmrRefresh'], serverComponentsHmrCache: RequestContext['serverComponentsHmrCache'], renderResumeDataCache: RenderResumeDataCache | undefined): RequestStore;
 export declare function createRequestStoreForAPI(req: RequestContext['req'], url: RequestContext['url'], implicitTags: RequestContext['implicitTags'], onUpdateCookies: RenderOpts['onUpdateCookies'], previewProps: WrapperRenderOpts['previewProps']): RequestStore;
 export declare function synchronizeMutableCookies(store: RequestStore): void;
 export {};

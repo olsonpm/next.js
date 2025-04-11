@@ -20,7 +20,7 @@ import { workAsyncStorage } from '../../app-render/work-async-storage.external';
 import { workUnitAsyncStorage } from '../../app-render/work-unit-async-storage.external';
 import { actionAsyncStorage } from '../../app-render/action-async-storage.external';
 import * as sharedModules from './shared-modules';
-import { getIsServerAction } from '../../lib/server-action-request-meta';
+import { getIsPossibleServerAction } from '../../lib/server-action-request-meta';
 import { RequestCookies } from 'next/dist/compiled/@edge-runtime/cookies';
 import { cleanURL } from './helpers/clean-url';
 import { StaticGenBailoutError } from '../../../client/components/static-generation-bailout';
@@ -35,6 +35,7 @@ import { isRedirectError } from '../../../client/components/redirect-error';
 import { getAccessFallbackHTTPStatus, isHTTPAccessFallbackError } from '../../../client/components/http-access-fallback/http-access-fallback';
 import { RedirectStatusCode } from '../../../client/components/redirect-status-code';
 import { INFINITE_CACHE } from '../../../lib/constants';
+import { executeRevalidates } from '../../revalidation-utils';
 export class WrappedNextRouterError {
     constructor(error, headers){
         this.error = error;
@@ -71,9 +72,17 @@ export class WrappedNextRouterError {
         this.dynamic = this.userland.dynamic;
         if (this.nextConfigOutput === 'export') {
             if (this.dynamic === 'force-dynamic') {
-                throw new Error(`export const dynamic = "force-dynamic" on page "${definition.pathname}" cannot be used with "output: export". See more info here: https://nextjs.org/docs/advanced-features/static-html-export`);
+                throw Object.defineProperty(new Error(`export const dynamic = "force-dynamic" on page "${definition.pathname}" cannot be used with "output: export". See more info here: https://nextjs.org/docs/advanced-features/static-html-export`), "__NEXT_ERROR_CODE", {
+                    value: "E278",
+                    enumerable: false,
+                    configurable: true
+                });
             } else if (!isStaticGenEnabled(this.userland) && this.userland['GET']) {
-                throw new Error(`export const dynamic = "force-static"/export const revalidate not configured on route "${definition.pathname}" with "output: export". See more info here: https://nextjs.org/docs/advanced-features/static-html-export`);
+                throw Object.defineProperty(new Error(`export const dynamic = "force-static"/export const revalidate not configured on route "${definition.pathname}" with "output: export". See more info here: https://nextjs.org/docs/advanced-features/static-html-export`), "__NEXT_ERROR_CODE", {
+                    value: "E301",
+                    enumerable: false,
+                    configurable: true
+                });
             } else {
                 this.dynamic = 'error';
             }
@@ -118,7 +127,7 @@ export class WrappedNextRouterError {
     // inside this function. Right now we get passed a RequestStore even when
     // we're going to do a prerender. We should probably just split do up into prexecute and execute
     requestStore, implicitTags, request, context) {
-        var _context_renderOpts_experimental, _workStore_incrementalCache;
+        var _context_renderOpts_experimental;
         const isStaticGeneration = workStore.isStaticGeneration;
         const dynamicIOEnabled = !!((_context_renderOpts_experimental = context.renderOpts.experimental) == null ? void 0 : _context_renderOpts_experimental.dynamicIO);
         // Patch the global fetch.
@@ -128,6 +137,13 @@ export class WrappedNextRouterError {
         });
         const handlerContext = {
             params: context.params ? createServerParamsForRoute(parsedUrlQueryToParams(context.params), workStore) : undefined
+        };
+        const resolvePendingRevalidations = ()=>{
+            context.renderOpts.pendingWaitUntil = executeRevalidates(workStore).finally(()=>{
+                if (process.env.NEXT_PRIVATE_DEBUG_CACHE) {
+                    console.log('pending revalidates promise finished for:', requestStore.url);
+                }
+            });
         };
         let prerenderStore = null;
         let res;
@@ -163,7 +179,10 @@ export class WrappedNextRouterError {
                     const prospectiveRoutePrerenderStore = prerenderStore = {
                         type: 'prerender',
                         phase: 'action',
-                        implicitTags: implicitTags,
+                        // This replicates prior behavior where rootParams is empty in routes
+                        // TODO we need to make this have the proper rootParams for this route
+                        rootParams: {},
+                        implicitTags,
                         renderSignal: prospectiveController.signal,
                         controller: prospectiveController,
                         cacheSignal,
@@ -174,9 +193,10 @@ export class WrappedNextRouterError {
                         expire: INFINITE_CACHE,
                         stale: INFINITE_CACHE,
                         tags: [
-                            ...implicitTags
+                            ...implicitTags.tags
                         ],
-                        prerenderResumeDataCache: null
+                        prerenderResumeDataCache: null,
+                        hmrRefreshHash: undefined
                     };
                     let prospectiveResult;
                     try {
@@ -210,10 +230,18 @@ export class WrappedNextRouterError {
                         // there is no need to try again
                         const dynamicReason = getFirstDynamicReason(dynamicTracking);
                         if (dynamicReason) {
-                            throw new DynamicServerError(`Route ${workStore.route} couldn't be rendered statically because it used \`${dynamicReason}\`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`);
+                            throw Object.defineProperty(new DynamicServerError(`Route ${workStore.route} couldn't be rendered statically because it used \`${dynamicReason}\`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`), "__NEXT_ERROR_CODE", {
+                                value: "E558",
+                                enumerable: false,
+                                configurable: true
+                            });
                         } else {
                             console.error('Expected Next.js to keep track of reason for opting out of static rendering but one was not found. This is a bug in Next.js');
-                            throw new DynamicServerError(`Route ${workStore.route} couldn't be rendered statically because it used a dynamic API. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`);
+                            throw Object.defineProperty(new DynamicServerError(`Route ${workStore.route} couldn't be rendered statically because it used a dynamic API. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`), "__NEXT_ERROR_CODE", {
+                                value: "E577",
+                                enumerable: false,
+                                configurable: true
+                            });
                         }
                     }
                     // TODO start passing this controller to the route handler. We should expose
@@ -224,7 +252,8 @@ export class WrappedNextRouterError {
                     const finalRoutePrerenderStore = prerenderStore = {
                         type: 'prerender',
                         phase: 'action',
-                        implicitTags: implicitTags,
+                        rootParams: {},
+                        implicitTags,
                         renderSignal: finalController.signal,
                         controller: finalController,
                         cacheSignal: null,
@@ -233,9 +262,10 @@ export class WrappedNextRouterError {
                         expire: INFINITE_CACHE,
                         stale: INFINITE_CACHE,
                         tags: [
-                            ...implicitTags
+                            ...implicitTags.tags
                         ],
-                        prerenderResumeDataCache: null
+                        prerenderResumeDataCache: null,
+                        hmrRefreshHash: undefined
                     };
                     let responseHandled = false;
                     res = await new Promise((resolve, reject)=>{
@@ -294,12 +324,13 @@ export class WrappedNextRouterError {
                     prerenderStore = {
                         type: 'prerender-legacy',
                         phase: 'action',
-                        implicitTags: implicitTags,
+                        rootParams: {},
+                        implicitTags,
                         revalidate: defaultRevalidate,
                         expire: INFINITE_CACHE,
                         stale: INFINITE_CACHE,
                         tags: [
-                            ...implicitTags
+                            ...implicitTags.tags
                         ]
                     };
                     res = await workUnitAsyncStorage.run(prerenderStore, handler, request, handlerContext);
@@ -311,7 +342,11 @@ export class WrappedNextRouterError {
             if (isRedirectError(err)) {
                 const url = getURLFromRedirectError(err);
                 if (!url) {
-                    throw new Error('Invariant: Unexpected redirect url format');
+                    throw Object.defineProperty(new Error('Invariant: Unexpected redirect url format'), "__NEXT_ERROR_CODE", {
+                        value: "E399",
+                        enumerable: false,
+                        configurable: true
+                    });
                 }
                 // We need to capture any headers that should be sent on
                 // the response.
@@ -320,11 +355,12 @@ export class WrappedNextRouterError {
                 });
                 // Let's append any cookies that were added by the
                 // cookie API.
-                // TODO leaving the gate here b/c it indicates that we we might not actually want to do this
+                // TODO leaving the gate here b/c it indicates that we might not actually want to do this
                 // on every `do` call. During prerender there should be no mutableCookies because
                 if (requestStore.type === 'request') {
                     appendMutableCookies(headers, requestStore.mutableCookies);
                 }
+                resolvePendingRevalidations();
                 // Return the redirect response.
                 return new Response(null, {
                     // If we're in an action, we want to use a 303 redirect as we don't
@@ -343,13 +379,14 @@ export class WrappedNextRouterError {
         }
         // Validate that the response is a valid response object.
         if (!(res instanceof Response)) {
-            throw new Error(`No response is returned from route handler '${this.resolvedPagePath}'. Ensure you return a \`Response\` or a \`NextResponse\` in all branches of your handler.`);
+            throw Object.defineProperty(new Error(`No response is returned from route handler '${this.resolvedPagePath}'. Ensure you return a \`Response\` or a \`NextResponse\` in all branches of your handler.`), "__NEXT_ERROR_CODE", {
+                value: "E325",
+                enumerable: false,
+                configurable: true
+            });
         }
         context.renderOpts.fetchMetrics = workStore.fetchMetrics;
-        context.renderOpts.pendingWaitUntil = Promise.all([
-            (_workStore_incrementalCache = workStore.incrementalCache) == null ? void 0 : _workStore_incrementalCache.revalidateTag(workStore.revalidatedTags || []),
-            ...Object.values(workStore.pendingRevalidates || {})
-        ]);
+        resolvePendingRevalidations();
         if (prerenderStore) {
             var _prerenderStore_tags;
             context.renderOpts.collectedTags = (_prerenderStore_tags = prerenderStore.tags) == null ? void 0 : _prerenderStore_tags.join(',');
@@ -378,15 +415,17 @@ export class WrappedNextRouterError {
             // App Routes don't support unknown route params.
             fallbackRouteParams: null,
             page: this.definition.page,
-            renderOpts: context.renderOpts
+            renderOpts: context.renderOpts,
+            buildId: context.sharedContext.buildId,
+            previouslyRevalidatedTags: []
         };
         // Add the fetchCache option to the renderOpts.
         staticGenerationContext.renderOpts.fetchCache = this.userland.fetchCache;
         const actionStore = {
             isAppRoute: true,
-            isAction: getIsServerAction(req)
+            isAction: getIsPossibleServerAction(req)
         };
-        const implicitTags = getImplicitTags(this.definition.page, req.nextUrl, // App Routes don't support unknown route params.
+        const implicitTags = await getImplicitTags(this.definition.page, req.nextUrl, // App Routes don't support unknown route params.
         null);
         const requestStore = createRequestStoreForAPI(req, req.nextUrl, implicitTags, undefined, context.prerenderManifest.preview);
         const workStore = createWorkStore(staticGenerationContext);
@@ -398,7 +437,11 @@ export class WrappedNextRouterError {
                     // having non-static methods.
                     if (this.hasNonStaticMethods) {
                         if (workStore.isStaticGeneration) {
-                            const err = new DynamicServerError('Route is configured with methods that cannot be statically generated.');
+                            const err = Object.defineProperty(new DynamicServerError('Route is configured with methods that cannot be statically generated.'), "__NEXT_ERROR_CODE", {
+                                value: "E582",
+                                enumerable: false,
+                                configurable: true
+                            });
                             workStore.dynamicUsageDescription = err.message;
                             workStore.dynamicUsageStack = err.stack;
                             throw err;
@@ -454,11 +497,19 @@ export class WrappedNextRouterError {
             });
         }
         if (response.headers.has('x-middleware-rewrite')) {
-            throw new Error('NextResponse.rewrite() was used in a app route handler, this is not currently supported. Please remove the invocation to continue.');
+            throw Object.defineProperty(new Error('NextResponse.rewrite() was used in a app route handler, this is not currently supported. Please remove the invocation to continue.'), "__NEXT_ERROR_CODE", {
+                value: "E374",
+                enumerable: false,
+                configurable: true
+            });
         }
         if (response.headers.get('x-middleware-next') === '1') {
             // TODO: move this error into the `NextResponse.next()` function.
-            throw new Error('NextResponse.next() was used in a app route handler, this is not supported. See here for more info: https://nextjs.org/docs/messages/next-response-next-in-app-route-handler');
+            throw Object.defineProperty(new Error('NextResponse.next() was used in a app route handler, this is not supported. See here for more info: https://nextjs.org/docs/messages/next-response-next-in-app-route-handler'), "__NEXT_ERROR_CODE", {
+                value: "E385",
+                enumerable: false,
+                configurable: true
+            });
         }
         return response;
     }
@@ -626,7 +677,11 @@ const requireStaticRequestHandlers = {
             case 'text':
             case 'arrayBuffer':
             case 'formData':
-                throw new StaticGenBailoutError(`Route ${target.nextUrl.pathname} with \`dynamic = "error"\` couldn't be rendered statically because it used \`request.${prop}\`.`);
+                throw Object.defineProperty(new StaticGenBailoutError(`Route ${target.nextUrl.pathname} with \`dynamic = "error"\` couldn't be rendered statically because it used \`request.${prop}\`.`), "__NEXT_ERROR_CODE", {
+                    value: "E611",
+                    enumerable: false,
+                    configurable: true
+                });
             case 'clone':
                 return target[requestCloneSymbol] || (target[requestCloneSymbol] = ()=>new Proxy(// This is vaguely unsafe but it's required since NextRequest does not implement
                     // clone. The reason we might expect this to work in this context is the Proxy will
@@ -651,7 +706,11 @@ const requireStaticNextUrlHandlers = {
             case 'toJSON':
             case 'toString':
             case 'origin':
-                throw new StaticGenBailoutError(`Route ${target.pathname} with \`dynamic = "error"\` couldn't be rendered statically because it used \`nextUrl.${prop}\`.`);
+                throw Object.defineProperty(new StaticGenBailoutError(`Route ${target.pathname} with \`dynamic = "error"\` couldn't be rendered statically because it used \`nextUrl.${prop}\`.`), "__NEXT_ERROR_CODE", {
+                    value: "E575",
+                    enumerable: false,
+                    configurable: true
+                });
             case 'clone':
                 return target[urlCloneSymbol] || (target[urlCloneSymbol] = ()=>new Proxy(target.clone(), requireStaticNextUrlHandlers));
             default:
@@ -660,23 +719,43 @@ const requireStaticNextUrlHandlers = {
     }
 };
 function createDynamicIOError(route) {
-    return new DynamicServerError(`Route ${route} couldn't be rendered statically because it used IO that was not cached. See more info here: https://nextjs.org/docs/messages/dynamic-io`);
+    return Object.defineProperty(new DynamicServerError(`Route ${route} couldn't be rendered statically because it used IO that was not cached. See more info here: https://nextjs.org/docs/messages/dynamic-io`), "__NEXT_ERROR_CODE", {
+        value: "E609",
+        enumerable: false,
+        configurable: true
+    });
 }
 export function trackDynamic(store, workUnitStore, expression) {
     if (workUnitStore) {
         if (workUnitStore.type === 'cache') {
-            throw new Error(`Route ${store.route} used "${expression}" inside "use cache". Accessing Dynamic data sources inside a cache scope is not supported. If you need this data inside a cached function use "${expression}" outside of the cached function and pass the required dynamic data in as an argument. See more info here: https://nextjs.org/docs/messages/next-request-in-use-cache`);
+            throw Object.defineProperty(new Error(`Route ${store.route} used "${expression}" inside "use cache". Accessing Dynamic data sources inside a cache scope is not supported. If you need this data inside a cached function use "${expression}" outside of the cached function and pass the required dynamic data in as an argument. See more info here: https://nextjs.org/docs/messages/next-request-in-use-cache`), "__NEXT_ERROR_CODE", {
+                value: "E178",
+                enumerable: false,
+                configurable: true
+            });
         } else if (workUnitStore.type === 'unstable-cache') {
-            throw new Error(`Route ${store.route} used "${expression}" inside a function cached with "unstable_cache(...)". Accessing Dynamic data sources inside a cache scope is not supported. If you need this data inside a cached function use "${expression}" outside of the cached function and pass the required dynamic data in as an argument. See more info here: https://nextjs.org/docs/app/api-reference/functions/unstable_cache`);
+            throw Object.defineProperty(new Error(`Route ${store.route} used "${expression}" inside a function cached with "unstable_cache(...)". Accessing Dynamic data sources inside a cache scope is not supported. If you need this data inside a cached function use "${expression}" outside of the cached function and pass the required dynamic data in as an argument. See more info here: https://nextjs.org/docs/app/api-reference/functions/unstable_cache`), "__NEXT_ERROR_CODE", {
+                value: "E133",
+                enumerable: false,
+                configurable: true
+            });
         }
     }
     if (store.dynamicShouldError) {
-        throw new StaticGenBailoutError(`Route ${store.route} with \`dynamic = "error"\` couldn't be rendered statically because it used \`${expression}\`. See more info here: https://nextjs.org/docs/app/building-your-application/rendering/static-and-dynamic#dynamic-rendering`);
+        throw Object.defineProperty(new StaticGenBailoutError(`Route ${store.route} with \`dynamic = "error"\` couldn't be rendered statically because it used \`${expression}\`. See more info here: https://nextjs.org/docs/app/building-your-application/rendering/static-and-dynamic#dynamic-rendering`), "__NEXT_ERROR_CODE", {
+            value: "E553",
+            enumerable: false,
+            configurable: true
+        });
     }
     if (workUnitStore) {
         if (workUnitStore.type === 'prerender') {
             // dynamicIO Prerender
-            const error = new Error(`Route ${store.route} used ${expression} without first calling \`await connection()\`. See more info here: https://nextjs.org/docs/messages/next-prerender-sync-request`);
+            const error = Object.defineProperty(new Error(`Route ${store.route} used ${expression} without first calling \`await connection()\`. See more info here: https://nextjs.org/docs/messages/next-prerender-sync-request`), "__NEXT_ERROR_CODE", {
+                value: "E261",
+                enumerable: false,
+                configurable: true
+            });
             abortAndThrowOnSynchronousRequestDataAccess(store.route, expression, error, workUnitStore);
         } else if (workUnitStore.type === 'prerender-ppr') {
             // PPR Prerender
@@ -684,7 +763,11 @@ export function trackDynamic(store, workUnitStore, expression) {
         } else if (workUnitStore.type === 'prerender-legacy') {
             // legacy Prerender
             workUnitStore.revalidate = 0;
-            const err = new DynamicServerError(`Route ${store.route} couldn't be rendered statically because it used \`${expression}\`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`);
+            const err = Object.defineProperty(new DynamicServerError(`Route ${store.route} couldn't be rendered statically because it used \`${expression}\`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`), "__NEXT_ERROR_CODE", {
+                value: "E558",
+                enumerable: false,
+                configurable: true
+            });
             store.dynamicUsageDescription = expression;
             store.dynamicUsageStack = err.stack;
             throw err;

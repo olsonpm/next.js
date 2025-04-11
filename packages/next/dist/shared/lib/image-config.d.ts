@@ -83,9 +83,11 @@ export type ImageConfigComplete = {
     /** @see [Dangerously Allow SVG](https://nextjs.org/docs/api-reference/next/image#dangerously-allow-svg) */
     contentDispositionType: 'inline' | 'attachment';
     /** @see [Remote Patterns](https://nextjs.org/docs/api-reference/next/image#remotepatterns) */
-    remotePatterns: RemotePattern[];
+    remotePatterns: Array<URL | RemotePattern>;
     /** @see [Remote Patterns](https://nextjs.org/docs/api-reference/next/image#localPatterns) */
     localPatterns: LocalPattern[] | undefined;
+    /** @see [Qualities](https://nextjs.org/docs/api-reference/next/image#qualities) */
+    qualities: number[] | undefined;
     /** @see [Unoptimized](https://nextjs.org/docs/api-reference/next/image#unoptimized) */
     unoptimized: boolean;
 };

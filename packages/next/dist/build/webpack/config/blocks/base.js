@@ -47,12 +47,6 @@ const base = (0, _lodashcurry.default)(function base(ctx, config) {
         if (ctx.isEdgeRuntime || ctx.isServer && ctx.serverSourceMaps || // Enable browser sourcemaps:
         ctx.productionBrowserSourceMaps && ctx.isClient) {
             config.devtool = 'source-map';
-            config.plugins ??= [];
-            config.plugins.push(new _devtoolsignorelistplugin.default({
-                // TODO: eval-source-map has different module paths than source-map.
-                // We're currently not actually ignore listing anything.
-                shouldIgnorePath
-            }));
         } else {
             config.devtool = false;
         }
@@ -63,11 +57,11 @@ const base = (0, _lodashcurry.default)(function base(ctx, config) {
         };
     }
     config.plugins ??= [];
-    if (config.devtool === 'source-map') {
+    if (config.devtool === 'source-map' && !process.env.NEXT_RSPACK) {
         config.plugins.push(new _devtoolsignorelistplugin.default({
             shouldIgnorePath
         }));
-    } else if (config.devtool === 'eval-source-map') {
+    } else if (config.devtool === 'eval-source-map' && !process.env.NEXT_RSPACK) {
         var _config_output;
         // We're using a fork of `eval-source-map`
         config.devtool = false;

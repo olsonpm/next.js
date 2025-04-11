@@ -10,8 +10,8 @@ import { downloadNativeNextSwc, downloadWasmSwc } from '../../lib/download-swc';
 import { isDeepStrictEqual } from 'util';
 import { getDefineEnv } from '../webpack/plugins/define-env-plugin';
 import { getReactCompilerLoader } from '../get-babel-loader-config';
-import { TurbopackInternalError } from '../../server/dev/turbopack-utils';
-const nextVersion = "15.1.2";
+import { TurbopackInternalError } from '../../shared/lib/turbopack/utils';
+const nextVersion = "15.3.0";
 const ArchName = arch();
 const PlatformName = platform();
 function infoLog(...args) {
@@ -102,7 +102,6 @@ let wasmBindings;
 let downloadWasmPromise;
 let pendingBindings;
 let swcTraceFlushGuard;
-let swcHeapProfilerFlushGuard;
 let downloadNativeBindingsPromise = undefined;
 export const lockfilePatchPromise = {};
 export async function loadBindings(useWasmBinary = false) {
@@ -241,8 +240,12 @@ function loadBindingsSync() {
         return wasmBindings;
     }
     logLoadFailure(attempts);
-    throw new Error('Failed to load bindings', {
+    throw Object.defineProperty(new Error('Failed to load bindings', {
         cause: attempts
+    }), "__NEXT_ERROR_CODE", {
+        value: "E424",
+        enumerable: false,
+        configurable: true
     });
 }
 let loggingLoadFailure = false;
@@ -299,13 +302,17 @@ function bindingToApi(binding, _wasm) {
     /**
    * Utility function to ensure all variants of an enum are handled.
    */ function invariant(never, computeMessage) {
-        throw new Error(`Invariant: ${computeMessage(never)}`);
+        throw Object.defineProperty(new Error(`Invariant: ${computeMessage(never)}`), "__NEXT_ERROR_CODE", {
+            value: "E193",
+            enumerable: false,
+            configurable: true
+        });
     }
     async function withErrorCause(fn) {
         try {
             return await fn();
         } catch (nativeError) {
-            throw new TurbopackInternalError(nativeError);
+            throw TurbopackInternalError.createAndRecordTelemetry(nativeError);
         }
     }
     /**
@@ -360,7 +367,7 @@ function bindingToApi(binding, _wasm) {
             } catch (e) {
                 if (e === cancel) return;
                 if (e instanceof Error) {
-                    throw new TurbopackInternalError(e);
+                    throw TurbopackInternalError.createAndRecordTelemetry(e);
                 }
                 throw e;
             } finally{
@@ -403,77 +410,17 @@ function bindingToApi(binding, _wasm) {
         async update(options) {
             await withErrorCause(async ()=>binding.projectUpdate(this._nativeProject, await rustifyPartialProjectOptions(options)));
         }
+        async writeAllEntrypointsToDisk(appDirOnly) {
+            return await withErrorCause(async ()=>{
+                const napiEndpoints = await binding.projectWriteAllEntrypointsToDisk(this._nativeProject, appDirOnly);
+                return napiEntrypointsToRawEntrypoints(napiEndpoints);
+            });
+        }
         entrypointsSubscribe() {
             const subscription = subscribe(false, async (callback)=>binding.projectEntrypointsSubscribe(this._nativeProject, callback));
             return async function*() {
                 for await (const entrypoints of subscription){
-                    const routes = new Map();
-                    for (const { pathname, ...nativeRoute } of entrypoints.routes){
-                        let route;
-                        const routeType = nativeRoute.type;
-                        switch(routeType){
-                            case 'page':
-                                route = {
-                                    type: 'page',
-                                    htmlEndpoint: new EndpointImpl(nativeRoute.htmlEndpoint),
-                                    dataEndpoint: new EndpointImpl(nativeRoute.dataEndpoint)
-                                };
-                                break;
-                            case 'page-api':
-                                route = {
-                                    type: 'page-api',
-                                    endpoint: new EndpointImpl(nativeRoute.endpoint)
-                                };
-                                break;
-                            case 'app-page':
-                                route = {
-                                    type: 'app-page',
-                                    pages: nativeRoute.pages.map((page)=>({
-                                            originalName: page.originalName,
-                                            htmlEndpoint: new EndpointImpl(page.htmlEndpoint),
-                                            rscEndpoint: new EndpointImpl(page.rscEndpoint)
-                                        }))
-                                };
-                                break;
-                            case 'app-route':
-                                route = {
-                                    type: 'app-route',
-                                    originalName: nativeRoute.originalName,
-                                    endpoint: new EndpointImpl(nativeRoute.endpoint)
-                                };
-                                break;
-                            case 'conflict':
-                                route = {
-                                    type: 'conflict'
-                                };
-                                break;
-                            default:
-                                const _exhaustiveCheck = routeType;
-                                invariant(nativeRoute, ()=>`Unknown route type: ${_exhaustiveCheck}`);
-                        }
-                        routes.set(pathname, route);
-                    }
-                    const napiMiddlewareToMiddleware = (middleware)=>({
-                            endpoint: new EndpointImpl(middleware.endpoint),
-                            runtime: middleware.runtime,
-                            matcher: middleware.matcher
-                        });
-                    const middleware = entrypoints.middleware ? napiMiddlewareToMiddleware(entrypoints.middleware) : undefined;
-                    const napiInstrumentationToInstrumentation = (instrumentation)=>({
-                            nodeJs: new EndpointImpl(instrumentation.nodeJs),
-                            edge: new EndpointImpl(instrumentation.edge)
-                        });
-                    const instrumentation = entrypoints.instrumentation ? napiInstrumentationToInstrumentation(entrypoints.instrumentation) : undefined;
-                    yield {
-                        routes,
-                        middleware,
-                        instrumentation,
-                        pagesDocumentEndpoint: new EndpointImpl(entrypoints.pagesDocumentEndpoint),
-                        pagesAppEndpoint: new EndpointImpl(entrypoints.pagesAppEndpoint),
-                        pagesErrorEndpoint: new EndpointImpl(entrypoints.pagesErrorEndpoint),
-                        issues: entrypoints.issues,
-                        diagnostics: entrypoints.diagnostics
-                    };
+                    yield napiEntrypointsToRawEntrypoints(entrypoints);
                 }
             }();
         }
@@ -483,8 +430,8 @@ function bindingToApi(binding, _wasm) {
         hmrIdentifiersSubscribe() {
             return subscribe(false, async (callback)=>binding.projectHmrIdentifiersSubscribe(this._nativeProject, callback));
         }
-        traceSource(stackFrame) {
-            return binding.projectTraceSource(this._nativeProject, stackFrame);
+        traceSource(stackFrame, currentDirectoryFileUrl) {
+            return binding.projectTraceSource(this._nativeProject, stackFrame, currentDirectoryFileUrl);
         }
         getSourceForAsset(filePath) {
             return binding.projectGetSourceForAsset(this._nativeProject, filePath);
@@ -537,21 +484,21 @@ function bindingToApi(binding, _wasm) {
         // It is not easy to set the rules inside of rust as resolving, and passing the context identical to the webpack
         // config is bit hard, also we can reuse same codes between webpack config in here.
         if (reactCompilerOptions) {
-            var _nextConfig_experimental_turbo, _nextConfig_experimental1;
+            var _nextConfig_turbopack;
             const ruleKeys = [
                 '*.ts',
                 '*.js',
                 '*.jsx',
                 '*.tsx'
             ];
-            if (Object.keys((nextConfig == null ? void 0 : (_nextConfig_experimental1 = nextConfig.experimental) == null ? void 0 : (_nextConfig_experimental_turbo = _nextConfig_experimental1.turbo) == null ? void 0 : _nextConfig_experimental_turbo.rules) ?? []).some((key)=>ruleKeys.includes(key))) {
-                Log.warn(`The React Compiler cannot be enabled automatically because 'experimental.turbo' contains a rule for '*.ts', '*.js', '*.jsx', and '*.tsx'. Remove this rule, or add 'babel-loader' and 'babel-plugin-react-compiler' to the Turbopack configuration manually.`);
+            if (Object.keys((nextConfig == null ? void 0 : (_nextConfig_turbopack = nextConfig.turbopack) == null ? void 0 : _nextConfig_turbopack.rules) ?? []).some((key)=>ruleKeys.includes(key))) {
+                Log.warn(`The React Compiler cannot be enabled automatically because 'turbopack.rules' contains a rule for '*.ts', '*.js', '*.jsx', and '*.tsx'. Remove this rule, or add 'babel-loader' and 'babel-plugin-react-compiler' to the Turbopack configuration manually.`);
             } else {
-                if (!nextConfig.experimental.turbo) {
-                    nextConfig.experimental.turbo = {};
+                if (!nextConfig.turbopack) {
+                    nextConfig.turbopack = {};
                 }
-                if (!nextConfig.experimental.turbo.rules) {
-                    nextConfig.experimental.turbo.rules = {};
+                if (!nextConfig.turbopack.rules) {
+                    nextConfig.turbopack.rules = {};
                 }
                 for (const key of [
                     '*.ts',
@@ -559,7 +506,7 @@ function bindingToApi(binding, _wasm) {
                     '*.jsx',
                     '*.tsx'
                 ]){
-                    nextConfig.experimental.turbo.rules[key] = {
+                    nextConfig.turbopack.rules[key] = {
                         browser: {
                             foreign: false,
                             loaders: [
@@ -581,8 +528,8 @@ function bindingToApi(binding, _wasm) {
         nextConfigSerializable.exportPathMap = {};
         nextConfigSerializable.webpack = nextConfig.webpack && {};
         if ((_nextConfigSerializable_experimental = nextConfigSerializable.experimental) == null ? void 0 : (_nextConfigSerializable_experimental_turbo = _nextConfigSerializable_experimental.turbo) == null ? void 0 : _nextConfigSerializable_experimental_turbo.rules) {
-            var _nextConfigSerializable_experimental_turbo1;
-            ensureLoadersHaveSerializableOptions((_nextConfigSerializable_experimental_turbo1 = nextConfigSerializable.experimental.turbo) == null ? void 0 : _nextConfigSerializable_experimental_turbo1.rules);
+            var _nextConfigSerializable_turbopack;
+            ensureLoadersHaveSerializableOptions((_nextConfigSerializable_turbopack = nextConfigSerializable.turbopack) == null ? void 0 : _nextConfigSerializable_turbopack.rules);
         }
         nextConfigSerializable.modularizeImports = nextConfigSerializable.modularizeImports ? Object.fromEntries(Object.entries(nextConfigSerializable.modularizeImports).map(([mod, config])=>[
                 mod,
@@ -627,10 +574,83 @@ function bindingToApi(binding, _wasm) {
         function checkLoaderItems(loaderItems, glob) {
             for (const loaderItem of loaderItems){
                 if (typeof loaderItem !== 'string' && !isDeepStrictEqual(loaderItem, JSON.parse(JSON.stringify(loaderItem)))) {
-                    throw new Error(`loader ${loaderItem.loader} for match "${glob}" does not have serializable options. Ensure that options passed are plain JavaScript objects and values.`);
+                    throw Object.defineProperty(new Error(`loader ${loaderItem.loader} for match "${glob}" does not have serializable options. Ensure that options passed are plain JavaScript objects and values.`), "__NEXT_ERROR_CODE", {
+                        value: "E491",
+                        enumerable: false,
+                        configurable: true
+                    });
                 }
             }
         }
+    }
+    function napiEntrypointsToRawEntrypoints(entrypoints) {
+        const routes = new Map();
+        for (const { pathname, ...nativeRoute } of entrypoints.routes){
+            let route;
+            const routeType = nativeRoute.type;
+            switch(routeType){
+                case 'page':
+                    route = {
+                        type: 'page',
+                        htmlEndpoint: new EndpointImpl(nativeRoute.htmlEndpoint),
+                        dataEndpoint: new EndpointImpl(nativeRoute.dataEndpoint)
+                    };
+                    break;
+                case 'page-api':
+                    route = {
+                        type: 'page-api',
+                        endpoint: new EndpointImpl(nativeRoute.endpoint)
+                    };
+                    break;
+                case 'app-page':
+                    route = {
+                        type: 'app-page',
+                        pages: nativeRoute.pages.map((page)=>({
+                                originalName: page.originalName,
+                                htmlEndpoint: new EndpointImpl(page.htmlEndpoint),
+                                rscEndpoint: new EndpointImpl(page.rscEndpoint)
+                            }))
+                    };
+                    break;
+                case 'app-route':
+                    route = {
+                        type: 'app-route',
+                        originalName: nativeRoute.originalName,
+                        endpoint: new EndpointImpl(nativeRoute.endpoint)
+                    };
+                    break;
+                case 'conflict':
+                    route = {
+                        type: 'conflict'
+                    };
+                    break;
+                default:
+                    const _exhaustiveCheck = routeType;
+                    invariant(nativeRoute, ()=>`Unknown route type: ${_exhaustiveCheck}`);
+            }
+            routes.set(pathname, route);
+        }
+        const napiMiddlewareToMiddleware = (middleware)=>({
+                endpoint: new EndpointImpl(middleware.endpoint),
+                runtime: middleware.runtime,
+                matcher: middleware.matcher
+            });
+        const middleware = entrypoints.middleware ? napiMiddlewareToMiddleware(entrypoints.middleware) : undefined;
+        const napiInstrumentationToInstrumentation = (instrumentation)=>({
+                nodeJs: new EndpointImpl(instrumentation.nodeJs),
+                edge: new EndpointImpl(instrumentation.edge)
+            });
+        const instrumentation = entrypoints.instrumentation ? napiInstrumentationToInstrumentation(entrypoints.instrumentation) : undefined;
+        return {
+            routes,
+            middleware,
+            instrumentation,
+            pagesDocumentEndpoint: new EndpointImpl(entrypoints.pagesDocumentEndpoint),
+            pagesAppEndpoint: new EndpointImpl(entrypoints.pagesAppEndpoint),
+            pagesErrorEndpoint: new EndpointImpl(entrypoints.pagesErrorEndpoint),
+            issues: entrypoints.issues,
+            diagnostics: entrypoints.diagnostics
+        };
     }
     return async function createProject(options, turboEngineOptions) {
         return new ProjectImpl(await binding.projectNew(await rustifyProjectOptions(options), turboEngineOptions || {}));
@@ -662,10 +682,18 @@ async function loadWasm(importPath = '') {
                 css: {
                     lightning: {
                         transform: function(_options) {
-                            throw new Error('`css.lightning.transform` is not supported by the wasm bindings.');
+                            throw Object.defineProperty(new Error('`css.lightning.transform` is not supported by the wasm bindings.'), "__NEXT_ERROR_CODE", {
+                                value: "E330",
+                                enumerable: false,
+                                configurable: true
+                            });
                         },
                         transformStyleAttr: function(_options) {
-                            throw new Error('`css.lightning.transformStyleAttr` is not supported by the wasm bindings.');
+                            throw Object.defineProperty(new Error('`css.lightning.transformStyleAttr` is not supported by the wasm bindings.'), "__NEXT_ERROR_CODE", {
+                                value: "E324",
+                                enumerable: false,
+                                configurable: true
+                            });
                         }
                     }
                 },
@@ -691,10 +719,18 @@ async function loadWasm(importPath = '') {
                 },
                 turbo: {
                     createProject: function(_options, _turboEngineOptions) {
-                        throw new Error('`turbo.createProject` is not supported by the wasm bindings.');
+                        throw Object.defineProperty(new Error('`turbo.createProject` is not supported by the wasm bindings.'), "__NEXT_ERROR_CODE", {
+                            value: "E403",
+                            enumerable: false,
+                            configurable: true
+                        });
                     },
                     startTurbopackTraceServer: function(_traceFilePath) {
-                        throw new Error('`turbo.startTurbopackTraceServer` is not supported by the wasm bindings.');
+                        throw Object.defineProperty(new Error('`turbo.startTurbopackTraceServer` is not supported by the wasm bindings.'), "__NEXT_ERROR_CODE", {
+                            value: "E13",
+                            enumerable: false,
+                            configurable: true
+                        });
                     }
                 },
                 mdx: {
@@ -778,9 +814,17 @@ function loadNative(importPath) {
             transformSync (src, options) {
                 var _options_jsc;
                 if (typeof src === 'undefined') {
-                    throw new Error("transformSync doesn't implement reading the file from filesystem");
+                    throw Object.defineProperty(new Error("transformSync doesn't implement reading the file from filesystem"), "__NEXT_ERROR_CODE", {
+                        value: "E292",
+                        enumerable: false,
+                        configurable: true
+                    });
                 } else if (Buffer.isBuffer(src)) {
-                    throw new Error("transformSync doesn't implement taking the source code as Buffer");
+                    throw Object.defineProperty(new Error("transformSync doesn't implement taking the source code as Buffer"), "__NEXT_ERROR_CODE", {
+                        value: "E387",
+                        enumerable: false,
+                        configurable: true
+                    });
                 }
                 const isModule = typeof src !== 'string';
                 options = options || {};
@@ -801,8 +845,6 @@ function loadNative(importPath) {
             getTargetTriple: bindings.getTargetTriple,
             initCustomTraceSubscriber: bindings.initCustomTraceSubscriber,
             teardownTraceSubscriber: bindings.teardownTraceSubscriber,
-            initHeapProfiler: bindings.initHeapProfiler,
-            teardownHeapProfiler: bindings.teardownHeapProfiler,
             turbo: {
                 createProject: bindingToApi(customBindings ?? bindings, false),
                 startTurbopackTraceServer (traceFilePath) {
@@ -883,25 +925,10 @@ export function getBinaryMetadata() {
  * Initialize trace subscriber to emit traces.
  *
  */ export function initCustomTraceSubscriber(traceFileName) {
-    if (!swcTraceFlushGuard) {
+    if (swcTraceFlushGuard) {
         // Wasm binary doesn't support trace emission
         let bindings = loadNative();
         swcTraceFlushGuard = bindings.initCustomTraceSubscriber == null ? void 0 : bindings.initCustomTraceSubscriber.call(bindings, traceFileName);
-    }
-}
-/**
- * Initialize heap profiler, if possible.
- * Note this is not available in release build of next-swc by default,
- * only available by manually building next-swc with specific flags.
- * Calling in release build will not do anything.
- */ export function initHeapProfiler() {
-    try {
-        if (!swcHeapProfilerFlushGuard) {
-            let bindings = loadNative();
-            swcHeapProfilerFlushGuard = bindings.initHeapProfiler == null ? void 0 : bindings.initHeapProfiler.call(bindings);
-        }
-    } catch (_) {
-    // Suppress exceptions, this fn allows to fail to load native bindings
     }
 }
 function once(fn) {
@@ -913,21 +940,6 @@ function once(fn) {
         }
     };
 }
-/**
- * Teardown heap profiler, if possible.
- *
- * Same as initialization, this is not available in release build of next-swc by default
- * and calling it will not do anything.
- */ export const teardownHeapProfiler = once(()=>{
-    try {
-        let bindings = loadNative();
-        if (swcHeapProfilerFlushGuard) {
-            bindings.teardownHeapProfiler == null ? void 0 : bindings.teardownHeapProfiler.call(bindings, swcHeapProfilerFlushGuard);
-        }
-    } catch (e) {
-    // Suppress exceptions, this fn allows to fail to load native bindings
-    }
-});
 /**
  * Teardown swc's trace subscriber if there's an initialized flush guard exists.
  *

@@ -63,8 +63,8 @@ function getParserOptions({ filename, jsConfig, ...rest }) {
         importAssertions: true
     };
 }
-function getBaseSWCOptions({ filename, jest, development, hasReactRefresh, globalWindow, esm, modularizeImports, swcPlugins, compilerOptions, resolvedBaseUrl, jsConfig, swcCacheDir, serverComponents, serverReferenceHashSalt, bundleLayer, isDynamicIo, cacheHandlers }) {
-    var _jsConfig_compilerOptions, _jsConfig_compilerOptions1, _jsConfig_compilerOptions2, _jsConfig_compilerOptions3, _jsConfig_compilerOptions4;
+function getBaseSWCOptions({ filename, jest, development, hasReactRefresh, globalWindow, esm, modularizeImports, swcPlugins, compilerOptions, resolvedBaseUrl, jsConfig, supportedBrowsers, swcCacheDir, serverComponents, serverReferenceHashSalt, bundleLayer, isDynamicIo, cacheHandlers, useCacheEnabled }) {
+    var _jsConfig_compilerOptions, _jsConfig_compilerOptions1, _jsConfig_compilerOptions2, _jsConfig_compilerOptions3, _jsConfig_compilerOptions4, _jsConfig_experimental;
     const isReactServerLayer = (0, _utils.isWebpackServerOnlyLayer)(bundleLayer);
     const isAppRouterPagesLayer = (0, _utils.isWebpackAppPagesLayer)(bundleLayer);
     const parserConfig = getParserOptions({
@@ -146,7 +146,9 @@ function getBaseSWCOptions({ filename, jest, development, hasReactRefresh, globa
             ])) : undefined,
         relay: compilerOptions == null ? void 0 : compilerOptions.relay,
         // Always transform styled-jsx and error when `client-only` condition is triggered
-        styledJsx: {},
+        styledJsx: (compilerOptions == null ? void 0 : compilerOptions.styledJsx) ?? {
+            useLightningcss: (jsConfig == null ? void 0 : (_jsConfig_experimental = jsConfig.experimental) == null ? void 0 : _jsConfig_experimental.useLightningcss) ?? false
+        },
         // Disable css-in-js libs (without client-only integration) transform on server layer for server components
         ...!isReactServerLayer && {
             // eslint-disable-next-line @typescript-eslint/no-use-before-define
@@ -156,19 +158,29 @@ function getBaseSWCOptions({ filename, jest, development, hasReactRefresh, globa
         },
         serverComponents: serverComponents && !jest ? {
             isReactServerLayer,
-            dynamicIoEnabled: isDynamicIo
+            dynamicIoEnabled: isDynamicIo,
+            useCacheEnabled
         } : undefined,
         serverActions: isAppRouterPagesLayer && !jest ? {
             isReactServerLayer,
-            dynamicIoEnabled: isDynamicIo,
+            isDevelopment: development,
+            useCacheEnabled,
             hashSalt: serverReferenceHashSalt,
-            cacheKinds: cacheHandlers ? Object.keys(cacheHandlers) : []
+            cacheKinds: [
+                'default',
+                'remote'
+            ].concat(cacheHandlers ? Object.keys(cacheHandlers) : [])
         } : undefined,
         // For app router we prefer to bundle ESM,
         // On server side of pages router we prefer CJS.
         preferEsm: esm,
         lintCodemodComments: true,
-        debugFunctionName: development
+        debugFunctionName: development,
+        ...supportedBrowsers && supportedBrowsers.length > 0 ? {
+            cssEnv: {
+                targets: supportedBrowsers
+            }
+        } : {}
     };
 }
 function getStyledComponentsOptions(styledComponentsConfig, development) {
@@ -224,6 +236,7 @@ function getJestSWCOptions({ isServer, filename, esm, modularizeImports, swcPlug
         compilerOptions,
         jsConfig,
         resolvedBaseUrl,
+        supportedBrowsers: undefined,
         esm,
         // Don't apply server layer transformations for Jest
         // Disable server / client graph assertions for Jest
@@ -250,7 +263,7 @@ function getJestSWCOptions({ isServer, filename, esm, modularizeImports, swcPlug
 }
 function getLoaderSWCOptions({ // This is not passed yet as "paths" resolving is handled by webpack currently.
 // resolvedBaseUrl,
-filename, development, isServer, pagesDir, appDir, isPageFile, isDynamicIo, hasReactRefresh, modularizeImports, optimizeServerReact, optimizePackageImports, swcPlugins, compilerOptions, jsConfig, supportedBrowsers, swcCacheDir, relativeFilePathFromRoot, serverComponents, serverReferenceHashSalt, bundleLayer, esm, cacheHandlers }) {
+filename, development, isServer, pagesDir, appDir, isPageFile, isDynamicIo, hasReactRefresh, modularizeImports, optimizeServerReact, optimizePackageImports, swcPlugins, compilerOptions, jsConfig, supportedBrowsers, swcCacheDir, relativeFilePathFromRoot, serverComponents, serverReferenceHashSalt, bundleLayer, esm, cacheHandlers, useCacheEnabled }) {
     let baseOptions = getBaseSWCOptions({
         filename,
         development,
@@ -261,13 +274,15 @@ filename, development, isServer, pagesDir, appDir, isPageFile, isDynamicIo, hasR
         compilerOptions,
         jsConfig,
         // resolvedBaseUrl,
+        supportedBrowsers,
         swcCacheDir,
         bundleLayer,
         serverComponents,
         serverReferenceHashSalt,
         esm: !!esm,
         isDynamicIo,
-        cacheHandlers
+        cacheHandlers,
+        useCacheEnabled
     });
     baseOptions.fontLoaders = {
         fontLoaders: [
@@ -360,7 +375,7 @@ filename, development, isServer, pagesDir, appDir, isPageFile, isDynamicIo, hasR
         options.cjsRequireOptimizer = undefined;
         // Disable optimizer for node_modules in app browser layer, to avoid unnecessary replacement.
         // e.g. typeof window could result differently in js worker or browser.
-        if ((_options_jsc_transform_optimizer_globals = options.jsc.transform.optimizer.globals) == null ? void 0 : _options_jsc_transform_optimizer_globals.typeofs) {
+        if (((_options_jsc_transform_optimizer_globals = options.jsc.transform.optimizer.globals) == null ? void 0 : _options_jsc_transform_optimizer_globals.typeofs) && !filename.includes(nextDirname)) {
             delete options.jsc.transform.optimizer.globals.typeofs.window;
         }
     }

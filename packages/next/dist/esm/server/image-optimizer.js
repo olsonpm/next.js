@@ -16,6 +16,7 @@ import { getContentType, getExtension } from './serve-static';
 import * as Log from '../build/output/log';
 import isError from '../lib/is-error';
 import { parseUrl } from '../lib/url';
+import { InvariantError } from '../shared/lib/invariant-error';
 const AVIF = 'image/avif';
 const WEBP = 'image/webp';
 const PNG = 'image/png';
@@ -23,6 +24,7 @@ const JPEG = 'image/jpeg';
 const GIF = 'image/gif';
 const SVG = 'image/svg+xml';
 const ICO = 'image/x-icon';
+const ICNS = 'image/x-icns';
 const TIFF = 'image/tiff';
 const BMP = 'image/bmp';
 const CACHE_VERSION = 4;
@@ -31,8 +33,11 @@ const ANIMATABLE_TYPES = [
     PNG,
     GIF
 ];
-const VECTOR_TYPES = [
-    SVG
+const BYPASS_TYPES = [
+    SVG,
+    ICO,
+    ICNS,
+    BMP
 ];
 const BLUR_IMG_SIZE = 8 // should match `next-image-loader`
 ;
@@ -54,7 +59,11 @@ export function getSharp(concurrency) {
         }
     } catch (e) {
         if (isError(e) && e.code === 'MODULE_NOT_FOUND') {
-            throw new Error('Module `sharp` not found. Please run `npm install --cpu=wasm32 sharp` to install it.');
+            throw Object.defineProperty(new Error('Module `sharp` not found. Please run `npm install --cpu=wasm32 sharp` to install it.'), "__NEXT_ERROR_CODE", {
+                value: "E47",
+                enumerable: false,
+                configurable: true
+            });
         }
         throw e;
     }
@@ -189,6 +198,14 @@ async function writeToCacheDir(dir, extension, maxAge, expireAt, buffer, etag, u
         return ICO;
     }
     if ([
+        0x69,
+        0x63,
+        0x6e,
+        0x73
+    ].every((b, i)=>buffer[i] === b)) {
+        return ICNS;
+    }
+    if ([
         0x49,
         0x49,
         0x2a,
@@ -206,13 +223,14 @@ async function writeToCacheDir(dir, extension, maxAge, expireAt, buffer, etag, u
 }
 export class ImageOptimizerCache {
     static validateParams(req, query, nextConfig, isDev) {
-        var _nextConfig_images, _nextConfig_images1;
+        var _nextConfig_images, _nextConfig_images1, _nextConfig_images2;
         const imageData = nextConfig.images;
         const { deviceSizes = [], imageSizes = [], domains = [], minimumCacheTTL = 60, formats = [
             'image/webp'
         ] } = imageData;
         const remotePatterns = ((_nextConfig_images = nextConfig.images) == null ? void 0 : _nextConfig_images.remotePatterns) || [];
         const localPatterns = (_nextConfig_images1 = nextConfig.images) == null ? void 0 : _nextConfig_images1.localPatterns;
+        const qualities = (_nextConfig_images2 = nextConfig.images) == null ? void 0 : _nextConfig_images2.qualities;
         const { url, w, q } = query;
         let href;
         if (domains.length > 0) {
@@ -328,6 +346,16 @@ export class ImageOptimizerCache {
                 errorMessage: '"q" parameter (quality) must be an integer between 1 and 100'
             };
         }
+        if (qualities) {
+            if (isDev) {
+                qualities.push(BLUR_QUALITY);
+            }
+            if (!qualities.includes(quality)) {
+                return {
+                    errorMessage: `"q" parameter (quality) of ${q} is not allowed`
+                };
+            }
+        }
         const mimeType = getSupportedMimeType(formats || [], req.headers['accept']);
         const isStatic = url.startsWith(`${nextConfig.basePath || ''}/_next/static/media`);
         return {
@@ -373,7 +401,10 @@ export class ImageOptimizerCache {
                         upstreamEtag
                     },
                     revalidateAfter: Math.max(maxAge, this.nextConfig.images.minimumCacheTTL) * 1000 + Date.now(),
-                    curRevalidate: maxAge,
+                    cacheControl: {
+                        revalidate: maxAge,
+                        expire: undefined
+                    },
                     isStale: now > expireAt,
                     isFallback: false
                 };
@@ -383,12 +414,24 @@ export class ImageOptimizerCache {
         }
         return null;
     }
-    async set(cacheKey, value, { revalidate }) {
-        if ((value == null ? void 0 : value.kind) !== CachedRouteKind.IMAGE) {
-            throw new Error('invariant attempted to set non-image to image-cache');
+    async set(cacheKey, value, { cacheControl }) {
+        if (!this.nextConfig.experimental.isrFlushToDisk) {
+            return;
         }
+        if ((value == null ? void 0 : value.kind) !== CachedRouteKind.IMAGE) {
+            throw Object.defineProperty(new Error('invariant attempted to set non-image to image-cache'), "__NEXT_ERROR_CODE", {
+                value: "E366",
+                enumerable: false,
+                configurable: true
+            });
+        }
+        const revalidate = cacheControl == null ? void 0 : cacheControl.revalidate;
         if (typeof revalidate !== 'number') {
-            throw new Error('invariant revalidate must be a number for image-cache');
+            throw Object.defineProperty(new InvariantError('revalidate must be a number for image-cache'), "__NEXT_ERROR_CODE", {
+                value: "E657",
+                enumerable: false,
+                configurable: true
+            });
         }
         const expireAt = Math.max(revalidate, this.nextConfig.images.minimumCacheTTL) * 1000 + Date.now();
         try {
@@ -493,13 +536,21 @@ export async function fetchExternalImage(href) {
         const err = res;
         if (err.name === 'TimeoutError') {
             Log.error('upstream image response timed out for', href);
-            throw new ImageError(504, '"url" parameter is valid but upstream response timed out');
+            throw Object.defineProperty(new ImageError(504, '"url" parameter is valid but upstream response timed out'), "__NEXT_ERROR_CODE", {
+                value: "E394",
+                enumerable: false,
+                configurable: true
+            });
         }
         throw err;
     }
     if (!res.ok) {
         Log.error('upstream image response failed for', href, res.status);
-        throw new ImageError(res.status, '"url" parameter is valid but upstream response is invalid');
+        throw Object.defineProperty(new ImageError(res.status, '"url" parameter is valid but upstream response is invalid'), "__NEXT_ERROR_CODE", {
+            value: "E394",
+            enumerable: false,
+            configurable: true
+        });
     }
     const buffer = Buffer.from(await res.arrayBuffer());
     const contentType = res.headers.get('Content-Type');
@@ -524,7 +575,11 @@ export async function fetchInternalImage(href, _req, _res, handleRequest) {
         await mocked.res.hasStreamed;
         if (!mocked.res.statusCode) {
             Log.error('image response failed for', href, mocked.res.statusCode);
-            throw new ImageError(mocked.res.statusCode, '"url" parameter is valid but internal response is invalid');
+            throw Object.defineProperty(new ImageError(mocked.res.statusCode, '"url" parameter is valid but internal response is invalid'), "__NEXT_ERROR_CODE", {
+                value: "E394",
+                enumerable: false,
+                configurable: true
+            });
         }
         const buffer = Buffer.concat(mocked.res.buffers);
         const contentType = mocked.res.getHeader('Content-Type');
@@ -538,21 +593,29 @@ export async function fetchInternalImage(href, _req, _res, handleRequest) {
         };
     } catch (err) {
         Log.error('upstream image response failed for', href, err);
-        throw new ImageError(500, '"url" parameter is valid but upstream response is invalid');
+        throw Object.defineProperty(new ImageError(500, '"url" parameter is valid but upstream response is invalid'), "__NEXT_ERROR_CODE", {
+            value: "E394",
+            enumerable: false,
+            configurable: true
+        });
     }
 }
 export async function imageOptimizer(imageUpstream, paramsResult, nextConfig, opts) {
     var _imageUpstream_contentType;
     const { href, quality, width, mimeType } = paramsResult;
     const { buffer: upstreamBuffer, etag: upstreamEtag } = imageUpstream;
-    const maxAge = getMaxAge(imageUpstream.cacheControl);
+    const maxAge = Math.max(nextConfig.images.minimumCacheTTL, getMaxAge(imageUpstream.cacheControl));
     const upstreamType = detectContentType(upstreamBuffer) || ((_imageUpstream_contentType = imageUpstream.contentType) == null ? void 0 : _imageUpstream_contentType.toLowerCase().trim());
     if (upstreamType) {
         if (upstreamType.startsWith('image/svg') && !nextConfig.images.dangerouslyAllowSVG) {
             if (!opts.silent) {
                 Log.error(`The requested resource "${href}" has type "${upstreamType}" but dangerouslyAllowSVG is disabled`);
             }
-            throw new ImageError(400, '"url" parameter is valid but image type is not allowed');
+            throw Object.defineProperty(new ImageError(400, '"url" parameter is valid but image type is not allowed'), "__NEXT_ERROR_CODE", {
+                value: "E394",
+                enumerable: false,
+                configurable: true
+            });
         }
         if (ANIMATABLE_TYPES.includes(upstreamType) && isAnimated(upstreamBuffer)) {
             if (!opts.silent) {
@@ -566,10 +629,7 @@ export async function imageOptimizer(imageUpstream, paramsResult, nextConfig, op
                 upstreamEtag
             };
         }
-        if (VECTOR_TYPES.includes(upstreamType)) {
-            // We don't warn here because we already know that "dangerouslyAllowSVG"
-            // was enabled above, therefore the user explicitly opted in.
-            // If we add more VECTOR_TYPES besides SVG, perhaps we could warn for those.
+        if (BYPASS_TYPES.includes(upstreamType)) {
             return {
                 buffer: upstreamBuffer,
                 contentType: upstreamType,
@@ -582,7 +642,11 @@ export async function imageOptimizer(imageUpstream, paramsResult, nextConfig, op
             if (!opts.silent) {
                 Log.error("The requested resource isn't a valid image for", href, 'received', upstreamType);
             }
-            throw new ImageError(400, "The requested resource isn't a valid image.");
+            throw Object.defineProperty(new ImageError(400, "The requested resource isn't a valid image."), "__NEXT_ERROR_CODE", {
+                value: "E394",
+                enumerable: false,
+                configurable: true
+            });
         }
     }
     let contentType;
@@ -595,11 +659,11 @@ export async function imageOptimizer(imageUpstream, paramsResult, nextConfig, op
     }
     const previouslyCachedImage = getPreviouslyCachedImageOrNull(imageUpstream, opts.previousCacheEntry);
     if (previouslyCachedImage) {
-        var _opts_previousCacheEntry;
+        var _opts_previousCacheEntry_cacheControl, _opts_previousCacheEntry;
         return {
             buffer: previouslyCachedImage.buffer,
             contentType,
-            maxAge: (opts == null ? void 0 : (_opts_previousCacheEntry = opts.previousCacheEntry) == null ? void 0 : _opts_previousCacheEntry.curRevalidate) || maxAge,
+            maxAge: (opts == null ? void 0 : (_opts_previousCacheEntry = opts.previousCacheEntry) == null ? void 0 : (_opts_previousCacheEntry_cacheControl = _opts_previousCacheEntry.cacheControl) == null ? void 0 : _opts_previousCacheEntry_cacheControl.revalidate) || maxAge,
             etag: previouslyCachedImage.etag,
             upstreamEtag: previouslyCachedImage.upstreamEtag
         };
@@ -631,7 +695,7 @@ export async function imageOptimizer(imageUpstream, paramsResult, nextConfig, op
         return {
             buffer: optimizedBuffer,
             contentType,
-            maxAge: Math.max(maxAge, nextConfig.images.minimumCacheTTL),
+            maxAge,
             etag: getImageEtag(optimizedBuffer),
             upstreamEtag
         };
@@ -647,7 +711,11 @@ export async function imageOptimizer(imageUpstream, paramsResult, nextConfig, op
                 error
             };
         } else {
-            throw new ImageError(400, 'Unable to optimize image and unable to fallback to upstream image');
+            throw Object.defineProperty(new ImageError(400, 'Unable to optimize image and unable to fallback to upstream image'), "__NEXT_ERROR_CODE", {
+                value: "E394",
+                enumerable: false,
+                configurable: true
+            });
         }
     }
 }

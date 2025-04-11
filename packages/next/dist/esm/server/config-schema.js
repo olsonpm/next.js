@@ -94,7 +94,51 @@ const zTurboRuleConfigItemOrShortcut = z.union([
     z.array(zTurboLoaderItem),
     zTurboRuleConfigItem
 ]);
+const zTurbopackConfig = z.strictObject({
+    rules: z.record(z.string(), zTurboRuleConfigItemOrShortcut).optional(),
+    resolveAlias: z.record(z.string(), z.union([
+        z.string(),
+        z.array(z.string()),
+        z.record(z.string(), z.union([
+            z.string(),
+            z.array(z.string())
+        ]))
+    ])).optional(),
+    resolveExtensions: z.array(z.string()).optional(),
+    moduleIds: z.enum([
+        'named',
+        'deterministic'
+    ]).optional()
+});
+// Same as zTurbopackConfig but with deprecated properties. Unfortunately, base
+// properties are duplicated here as `ZodType`s do not export `extend()`.
+const zDeprecatedExperimentalTurboConfig = z.strictObject({
+    loaders: z.record(z.string(), z.array(zTurboLoaderItem)).optional(),
+    rules: z.record(z.string(), zTurboRuleConfigItemOrShortcut).optional(),
+    resolveAlias: z.record(z.string(), z.union([
+        z.string(),
+        z.array(z.string()),
+        z.record(z.string(), z.union([
+            z.string(),
+            z.array(z.string())
+        ]))
+    ])).optional(),
+    resolveExtensions: z.array(z.string()).optional(),
+    treeShaking: z.boolean().optional(),
+    persistentCaching: z.union([
+        z.number(),
+        z.literal(false)
+    ]).optional(),
+    memoryLimit: z.number().optional(),
+    moduleIds: z.enum([
+        'named',
+        'deterministic'
+    ]).optional(),
+    minify: z.boolean().optional(),
+    sourceMaps: z.boolean().optional()
+});
 export const configSchema = z.lazy(()=>z.strictObject({
+        allowedDevOrigins: z.array(z.string()).optional(),
         amp: z.object({
             canonicalBase: z.string().optional()
         }).optional(),
@@ -179,16 +223,23 @@ export const configSchema = z.lazy(()=>z.strictObject({
             z.literal('use-credentials')
         ]).optional(),
         deploymentId: z.string().optional(),
-        devIndicators: z.object({
-            appIsrStatus: z.boolean().optional(),
-            buildActivity: z.boolean().optional(),
-            buildActivityPosition: z.union([
-                z.literal('bottom-left'),
-                z.literal('bottom-right'),
-                z.literal('top-left'),
-                z.literal('top-right')
-            ]).optional()
-        }).optional(),
+        devIndicators: z.union([
+            z.object({
+                buildActivityPosition: z.union([
+                    z.literal('bottom-left'),
+                    z.literal('bottom-right'),
+                    z.literal('top-left'),
+                    z.literal('top-right')
+                ]).optional(),
+                position: z.union([
+                    z.literal('bottom-left'),
+                    z.literal('bottom-right'),
+                    z.literal('top-left'),
+                    z.literal('top-right')
+                ]).optional()
+            }),
+            z.literal(false)
+        ]).optional(),
         distDir: z.string().min(1).optional(),
         env: z.record(z.string(), z.union([
             z.string(),
@@ -200,9 +251,9 @@ export const configSchema = z.lazy(()=>z.strictObject({
         }).optional(),
         excludeDefaultMomentLocales: z.boolean().optional(),
         experimental: z.strictObject({
+            nodeMiddleware: z.boolean().optional(),
             after: z.boolean().optional(),
             appDocumentPreloading: z.boolean().optional(),
-            appIsrStatus: z.boolean().optional(),
             appNavFailHandling: z.boolean().optional(),
             preloadEntriesOnStart: z.boolean().optional(),
             allowedRevalidateHeaderKeys: z.array(z.string()).optional(),
@@ -229,7 +280,11 @@ export const configSchema = z.lazy(()=>z.strictObject({
             memoryBasedWorkersCount: z.boolean().optional(),
             craCompat: z.boolean().optional(),
             caseSensitiveRoutes: z.boolean().optional(),
-            clientSegmentCache: z.boolean().optional(),
+            clientSegmentCache: z.union([
+                z.boolean(),
+                z.literal('client-only')
+            ]).optional(),
+            dynamicOnHover: z.boolean().optional(),
             disableOptimizedLoading: z.boolean().optional(),
             disablePostcssPresetEnv: z.boolean().optional(),
             dynamicIO: z.boolean().optional(),
@@ -255,7 +310,6 @@ export const configSchema = z.lazy(()=>z.strictObject({
             imgOptTimeoutInSeconds: z.number().int().optional(),
             imgOptMaxInputPixels: z.number().int().optional(),
             imgOptSequentialRead: z.boolean().optional().nullable(),
-            internal_disableSyncDynamicAPIWarnings: z.boolean().optional(),
             isrFlushToDisk: z.boolean().optional(),
             largePageDataBytes: z.number().optional(),
             linkNoTouchStart: z.boolean().optional(),
@@ -283,9 +337,9 @@ export const configSchema = z.lazy(()=>z.strictObject({
                 z.literal('incremental')
             ]).readonly().optional(),
             taint: z.boolean().optional(),
-            reactOwnerStack: z.boolean().optional(),
             prerenderEarlyExit: z.boolean().optional(),
             proxyTimeout: z.number().gte(0).optional(),
+            routerBFCache: z.boolean().optional(),
             scrollRestoration: z.boolean().optional(),
             sri: z.object({
                 algorithm: z.enum([
@@ -303,6 +357,7 @@ export const configSchema = z.lazy(()=>z.strictObject({
             swcTraceProfiling: z.boolean().optional(),
             // NonNullable<webpack.Configuration['experiments']>['buildHttp']
             urlImports: z.any().optional(),
+            viewTransition: z.boolean().optional(),
             workerThreads: z.boolean().optional(),
             webVitalsAttribution: z.array(z.union([
                 z.literal('CLS'),
@@ -330,30 +385,14 @@ export const configSchema = z.lazy(()=>z.strictObject({
             typedRoutes: z.boolean().optional(),
             webpackBuildWorker: z.boolean().optional(),
             webpackMemoryOptimizations: z.boolean().optional(),
-            turbo: z.object({
-                loaders: z.record(z.string(), z.array(zTurboLoaderItem)).optional(),
-                rules: z.record(z.string(), zTurboRuleConfigItemOrShortcut).optional(),
-                resolveAlias: z.record(z.string(), z.union([
-                    z.string(),
-                    z.array(z.string()),
-                    z.record(z.string(), z.union([
-                        z.string(),
-                        z.array(z.string())
-                    ]))
-                ])).optional(),
-                resolveExtensions: z.array(z.string()).optional(),
-                treeShaking: z.boolean().optional(),
-                persistentCaching: z.union([
-                    z.number(),
-                    z.literal(false)
-                ]).optional(),
-                memoryLimit: z.number().optional(),
-                moduleIdStrategy: z.enum([
-                    'named',
-                    'deterministic'
-                ]).optional(),
-                minify: z.boolean().optional()
-            }).optional(),
+            /**
+         * @deprecated Use `config.turbopack` instead.
+         */ turbo: zDeprecatedExperimentalTurboConfig.optional(),
+            turbopackMemoryLimit: z.number().optional(),
+            turbopackMinify: z.boolean().optional(),
+            turbopackPersistentCaching: z.boolean().optional(),
+            turbopackSourceMaps: z.boolean().optional(),
+            turbopackTreeShaking: z.boolean().optional(),
             optimizePackageImports: z.array(z.string()).optional(),
             optimizeServerReact: z.boolean().optional(),
             clientTraceMetadata: z.array(z.string()).optional(),
@@ -385,7 +424,11 @@ export const configSchema = z.lazy(()=>z.strictObject({
             staticGenerationMinPagesPerWorker: z.number().int().optional(),
             typedEnv: z.boolean().optional(),
             serverComponentsHmrCache: z.boolean().optional(),
-            authInterrupts: z.boolean().optional()
+            authInterrupts: z.boolean().optional(),
+            useCache: z.boolean().optional(),
+            slowModuleDetection: z.object({
+                buildTimeThresholdMs: z.number().int()
+            }).optional()
         }).optional(),
         exportPathMap: z.function().args(zExportMap, z.object({
             dev: z.boolean(),
@@ -407,6 +450,7 @@ export const configSchema = z.lazy(()=>z.strictObject({
         ])).optional(),
         generateEtags: z.boolean().optional(),
         headers: z.function().args().returns(z.promise(z.array(zHeader))).optional(),
+        htmlLimitedBots: z.instanceof(RegExp).optional(),
         httpAgentOptions: z.strictObject({
             keepAlive: z.boolean().optional()
         }).optional(),
@@ -426,16 +470,19 @@ export const configSchema = z.lazy(()=>z.strictObject({
                 pathname: z.string().optional(),
                 search: z.string().optional()
             })).max(25).optional(),
-            remotePatterns: z.array(z.strictObject({
-                hostname: z.string(),
-                pathname: z.string().optional(),
-                port: z.string().max(5).optional(),
-                protocol: z.enum([
-                    'http',
-                    'https'
-                ]).optional(),
-                search: z.string().optional()
-            })).max(50).optional(),
+            remotePatterns: z.array(z.union([
+                z.instanceof(URL),
+                z.strictObject({
+                    hostname: z.string(),
+                    pathname: z.string().optional(),
+                    port: z.string().max(5).optional(),
+                    protocol: z.enum([
+                        'http',
+                        'https'
+                    ]).optional(),
+                    search: z.string().optional()
+                })
+            ])).max(50).optional(),
             unoptimized: z.boolean().optional(),
             contentSecurityPolicy: z.string().optional(),
             contentDispositionType: z.enum([
@@ -454,14 +501,21 @@ export const configSchema = z.lazy(()=>z.strictObject({
             loader: z.enum(VALID_LOADERS).optional(),
             loaderFile: z.string().optional(),
             minimumCacheTTL: z.number().int().gte(0).optional(),
-            path: z.string().optional()
+            path: z.string().optional(),
+            qualities: z.array(z.number().int().gte(1).lte(100)).min(1).max(20).optional()
         }).optional(),
         logging: z.union([
             z.object({
                 fetches: z.object({
                     fullUrl: z.boolean().optional(),
                     hmrRefreshes: z.boolean().optional()
-                }).optional()
+                }).optional(),
+                incomingRequests: z.union([
+                    z.boolean(),
+                    z.object({
+                        ignore: z.array(z.instanceof(RegExp))
+                    })
+                ]).optional()
             }),
             z.literal(false)
         ]).optional(),
@@ -513,6 +567,7 @@ export const configSchema = z.lazy(()=>z.strictObject({
         target: z.string().optional(),
         trailingSlash: z.boolean().optional(),
         transpilePackages: z.array(z.string()).optional(),
+        turbopack: zTurbopackConfig.optional(),
         typescript: z.strictObject({
             ignoreBuildErrors: z.boolean().optional(),
             tsconfigPath: z.string().min(1).optional()

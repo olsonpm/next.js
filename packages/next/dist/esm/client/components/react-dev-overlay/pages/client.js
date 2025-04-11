@@ -1,18 +1,17 @@
 import * as Bus from './bus';
-import { parseStack } from '../internal/helpers/parse-stack';
-import { parseComponentStack } from '../internal/helpers/parse-component-stack';
-import { hydrationErrorState, storeHydrationErrorStateFromConsoleArgs } from '../internal/helpers/hydration-error-info';
-import { ACTION_BEFORE_REFRESH, ACTION_BUILD_ERROR, ACTION_BUILD_OK, ACTION_REFRESH, ACTION_UNHANDLED_ERROR, ACTION_UNHANDLED_REJECTION, ACTION_VERSION_INFO } from '../shared';
-import { attachHydrationErrorState } from '../internal/helpers/attach-hydration-error-state';
+import { parseStack } from '../utils/parse-stack';
+import { parseComponentStack } from '../utils/parse-component-stack';
+import { storeHydrationErrorStateFromConsoleArgs } from '../../errors/hydration-error-info';
+import { ACTION_BEFORE_REFRESH, ACTION_BUILD_ERROR, ACTION_BUILD_OK, ACTION_DEV_INDICATOR, ACTION_REFRESH, ACTION_STATIC_INDICATOR, ACTION_UNHANDLED_ERROR, ACTION_UNHANDLED_REJECTION, ACTION_VERSION_INFO } from '../shared';
+import { attachHydrationErrorState } from '../../errors/attach-hydration-error-state';
 let isRegistered = false;
-let stackTraceLimit = undefined;
 function handleError(error) {
     if (!error || !(error instanceof Error) || typeof error.stack !== 'string') {
         // A non-error was thrown, we don't have anything to show. :-(
         return;
     }
     attachHydrationErrorState(error);
-    const componentStackTrace = error._componentStack || hydrationErrorState.componentStack;
+    const componentStackTrace = error._componentStack;
     const componentStackFrames = typeof componentStackTrace === 'string' ? parseComponentStack(componentStackTrace) : undefined;
     // Skip ModuleBuildError and ModuleNotFoundError, as it will be sent through onBuildError callback.
     // This is to avoid same error as different type showing up on client to cause flashing.
@@ -59,28 +58,11 @@ export function register() {
     }
     isRegistered = true;
     try {
-        const limit = Error.stackTraceLimit;
         Error.stackTraceLimit = 50;
-        stackTraceLimit = limit;
     } catch (e) {}
     window.addEventListener('error', onUnhandledError);
     window.addEventListener('unhandledrejection', onUnhandledRejection);
     window.console.error = nextJsHandleConsoleError;
-}
-export function unregister() {
-    if (!isRegistered) {
-        return;
-    }
-    isRegistered = false;
-    if (stackTraceLimit !== undefined) {
-        try {
-            Error.stackTraceLimit = stackTraceLimit;
-        } catch (e) {}
-        stackTraceLimit = undefined;
-    }
-    window.removeEventListener('error', onUnhandledError);
-    window.removeEventListener('unhandledrejection', onUnhandledRejection);
-    window.console.error = origConsoleError;
 }
 export function onBuildOk() {
     Bus.emit({
@@ -109,8 +91,19 @@ export function onVersionInfo(versionInfo) {
         versionInfo
     });
 }
-export { getErrorByType } from '../internal/helpers/get-error-by-type';
-export { getServerError } from '../internal/helpers/node-stack-frames';
-export { default as ReactDevOverlay } from './ReactDevOverlay';
+export function onStaticIndicator(isStatic) {
+    Bus.emit({
+        type: ACTION_STATIC_INDICATOR,
+        staticIndicator: isStatic
+    });
+}
+export function onDevIndicator(devIndicatorsState) {
+    Bus.emit({
+        type: ACTION_DEV_INDICATOR,
+        devIndicator: devIndicatorsState
+    });
+}
+export { getErrorByType } from '../utils/get-error-by-type';
+export { getServerError } from '../utils/node-stack-frames';
 
 //# sourceMappingURL=client.js.map

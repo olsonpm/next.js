@@ -26,6 +26,7 @@ import { workUnitAsyncStorage } from './work-unit-async-storage.external';
 import { workAsyncStorage } from '../app-render/work-async-storage.external';
 import { makeHangingPromise } from '../dynamic-rendering-utils';
 import { METADATA_BOUNDARY_NAME, VIEWPORT_BOUNDARY_NAME, OUTLET_BOUNDARY_NAME } from '../../lib/metadata/metadata-constants';
+import { scheduleOnNextTick } from '../../lib/scheduler';
 const hasPostpone = typeof React.unstable_postpone === 'function';
 export function createDynamicTrackingState(isDebugDynamicAccesses) {
     return {
@@ -68,7 +69,11 @@ export function getFirstDynamicReason(trackingState) {
     // or it's static and it should not throw or postpone here.
     if (store.forceDynamic || store.forceStatic) return;
     if (store.dynamicShouldError) {
-        throw new StaticGenBailoutError(`Route ${store.route} with \`dynamic = "error"\` couldn't be rendered statically because it used \`${expression}\`. See more info here: https://nextjs.org/docs/app/building-your-application/rendering/static-and-dynamic#dynamic-rendering`);
+        throw Object.defineProperty(new StaticGenBailoutError(`Route ${store.route} with \`dynamic = "error"\` couldn't be rendered statically because it used \`${expression}\`. See more info here: https://nextjs.org/docs/app/building-your-application/rendering/static-and-dynamic#dynamic-rendering`), "__NEXT_ERROR_CODE", {
+            value: "E553",
+            enumerable: false,
+            configurable: true
+        });
     }
     if (workUnitStore) {
         if (workUnitStore.type === 'prerender-ppr') {
@@ -76,7 +81,11 @@ export function getFirstDynamicReason(trackingState) {
         } else if (workUnitStore.type === 'prerender-legacy') {
             workUnitStore.revalidate = 0;
             // We aren't prerendering but we are generating a static page. We need to bail out of static generation
-            const err = new DynamicServerError(`Route ${store.route} couldn't be rendered statically because it used ${expression}. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`);
+            const err = Object.defineProperty(new DynamicServerError(`Route ${store.route} couldn't be rendered statically because it used ${expression}. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`), "__NEXT_ERROR_CODE", {
+                value: "E550",
+                enumerable: false,
+                configurable: true
+            });
             store.dynamicUsageDescription = expression;
             store.dynamicUsageStack = err.stack;
             throw err;
@@ -104,7 +113,11 @@ export function getFirstDynamicReason(trackingState) {
  * @internal
  */ export function throwToInterruptStaticGeneration(expression, store, prerenderStore) {
     // We aren't prerendering but we are generating a static page. We need to bail out of static generation
-    const err = new DynamicServerError(`Route ${store.route} couldn't be rendered statically because it used \`${expression}\`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`);
+    const err = Object.defineProperty(new DynamicServerError(`Route ${store.route} couldn't be rendered statically because it used \`${expression}\`. See more info here: https://nextjs.org/docs/messages/dynamic-server-error`), "__NEXT_ERROR_CODE", {
+        value: "E558",
+        enumerable: false,
+        configurable: true
+    });
     prerenderStore.revalidate = 0;
     store.dynamicUsageDescription = expression;
     store.dynamicUsageStack = err.stack;
@@ -157,7 +170,7 @@ export function abortOnSynchronousPlatformIOAccess(route, expression, errorWithS
             dynamicTracking.syncDynamicErrorWithStack = errorWithStack;
         }
     }
-    return abortOnSynchronousDynamicDataAccess(route, expression, prerenderStore);
+    abortOnSynchronousDynamicDataAccess(route, expression, prerenderStore);
 }
 export function trackSynchronousPlatformIOAccessInDev(requestStore) {
     // We don't actually have a controller to abort but we do the semantic equivalent by
@@ -174,19 +187,27 @@ export function trackSynchronousPlatformIOAccessInDev(requestStore) {
  *
  * @internal
  */ export function abortAndThrowOnSynchronousRequestDataAccess(route, expression, errorWithStack, prerenderStore) {
-    const dynamicTracking = prerenderStore.dynamicTracking;
-    if (dynamicTracking) {
-        if (dynamicTracking.syncDynamicErrorWithStack === null) {
-            dynamicTracking.syncDynamicExpression = expression;
-            dynamicTracking.syncDynamicErrorWithStack = errorWithStack;
-            if (prerenderStore.validating === true) {
-                // We always log Request Access in dev at the point of calling the function
-                // So we mark the dynamic validation as not requiring it to be printed
-                dynamicTracking.syncDynamicLogged = true;
+    const prerenderSignal = prerenderStore.controller.signal;
+    if (prerenderSignal.aborted === false) {
+        // TODO it would be better to move this aborted check into the callsite so we can avoid making
+        // the error object when it isn't relevant to the aborting of the prerender however
+        // since we need the throw semantics regardless of whether we abort it is easier to land
+        // this way. See how this was handled with `abortOnSynchronousPlatformIOAccess` for a closer
+        // to ideal implementation
+        const dynamicTracking = prerenderStore.dynamicTracking;
+        if (dynamicTracking) {
+            if (dynamicTracking.syncDynamicErrorWithStack === null) {
+                dynamicTracking.syncDynamicExpression = expression;
+                dynamicTracking.syncDynamicErrorWithStack = errorWithStack;
+                if (prerenderStore.validating === true) {
+                    // We always log Request Access in dev at the point of calling the function
+                    // So we mark the dynamic validation as not requiring it to be printed
+                    dynamicTracking.syncDynamicLogged = true;
+                }
             }
         }
+        abortOnSynchronousDynamicDataAccess(route, expression, prerenderStore);
     }
-    abortOnSynchronousDynamicDataAccess(route, expression, prerenderStore);
     throw createPrerenderInterruptedError(`Route ${route} needs to bail out of prerendering at this point because it used ${expression}.`);
 }
 // For now these implementations are the same so we just reexport
@@ -221,11 +242,19 @@ function isDynamicPostponeReason(reason) {
     return reason.includes('needs to bail out of prerendering at this point because it used') && reason.includes('Learn more: https://nextjs.org/docs/messages/ppr-caught-error');
 }
 if (isDynamicPostponeReason(createPostponeReason('%%%', '^^^')) === false) {
-    throw new Error('Invariant: isDynamicPostpone misidentified a postpone reason. This is a bug in Next.js');
+    throw Object.defineProperty(new Error('Invariant: isDynamicPostpone misidentified a postpone reason. This is a bug in Next.js'), "__NEXT_ERROR_CODE", {
+        value: "E296",
+        enumerable: false,
+        configurable: true
+    });
 }
 const NEXT_PRERENDER_INTERRUPTED = 'NEXT_PRERENDER_INTERRUPTED';
 function createPrerenderInterruptedError(message) {
-    const error = new Error(message);
+    const error = Object.defineProperty(new Error(message), "__NEXT_ERROR_CODE", {
+        value: "E394",
+        enumerable: false,
+        configurable: true
+    });
     error.digest = NEXT_PRERENDER_INTERRUPTED;
     return error;
 }
@@ -267,7 +296,11 @@ export function formatDynamicAPIAccesses(dynamicAccesses) {
 }
 function assertPostpone() {
     if (!hasPostpone) {
-        throw new Error(`Invariant: React.unstable_postpone is not defined. This suggests the wrong version of React was loaded. This is a bug in Next.js`);
+        throw Object.defineProperty(new Error(`Invariant: React.unstable_postpone is not defined. This suggests the wrong version of React was loaded. This is a bug in Next.js`), "__NEXT_ERROR_CODE", {
+            value: "E224",
+            enumerable: false,
+            configurable: true
+        });
     }
 }
 /**
@@ -284,6 +317,29 @@ function assertPostpone() {
     }
     return controller.signal;
 }
+/**
+ * In a prerender, we may end up with hanging Promises as inputs due them
+ * stalling on connection() or because they're loading dynamic data. In that
+ * case we need to abort the encoding of arguments since they'll never complete.
+ */ export function createHangingInputAbortSignal(workUnitStore) {
+    const controller = new AbortController();
+    if (workUnitStore.cacheSignal) {
+        // If we have a cacheSignal it means we're in a prospective render. If the input
+        // we're waiting on is coming from another cache, we do want to wait for it so that
+        // we can resolve this cache entry too.
+        workUnitStore.cacheSignal.inputReady().then(()=>{
+            controller.abort();
+        });
+    } else {
+        // Otherwise we're in the final render and we should already have all our caches
+        // filled. We might still be waiting on some microtasks so we wait one tick before
+        // giving up. When we give up, we still want to render the content of this cache
+        // as deeply as we can so that we can suspend as deeply as possible in the tree
+        // or not at all if we don't end up waiting for the input.
+        scheduleOnNextTick(()=>controller.abort());
+    }
+    return controller.signal;
+}
 export function annotateDynamicAccess(expression, prerenderStore) {
     const dynamicTracking = prerenderStore.dynamicTracking;
     if (dynamicTracking) {
@@ -294,25 +350,23 @@ export function annotateDynamicAccess(expression, prerenderStore) {
     }
 }
 export function useDynamicRouteParams(expression) {
-    if (typeof window === 'undefined') {
-        const workStore = workAsyncStorage.getStore();
-        if (workStore && workStore.isStaticGeneration && workStore.fallbackRouteParams && workStore.fallbackRouteParams.size > 0) {
-            // There are fallback route params, we should track these as dynamic
-            // accesses.
-            const workUnitStore = workUnitAsyncStorage.getStore();
-            if (workUnitStore) {
-                // We're prerendering with dynamicIO or PPR or both
-                if (workUnitStore.type === 'prerender') {
-                    // We are in a prerender with dynamicIO semantics
-                    // We are going to hang here and never resolve. This will cause the currently
-                    // rendering component to effectively be a dynamic hole
-                    React.use(makeHangingPromise(workUnitStore.renderSignal, expression));
-                } else if (workUnitStore.type === 'prerender-ppr') {
-                    // We're prerendering with PPR
-                    postponeWithTracking(workStore.route, expression, workUnitStore.dynamicTracking);
-                } else if (workUnitStore.type === 'prerender-legacy') {
-                    throwToInterruptStaticGeneration(expression, workStore, workUnitStore);
-                }
+    const workStore = workAsyncStorage.getStore();
+    if (workStore && workStore.isStaticGeneration && workStore.fallbackRouteParams && workStore.fallbackRouteParams.size > 0) {
+        // There are fallback route params, we should track these as dynamic
+        // accesses.
+        const workUnitStore = workUnitAsyncStorage.getStore();
+        if (workUnitStore) {
+            // We're prerendering with dynamicIO or PPR or both
+            if (workUnitStore.type === 'prerender') {
+                // We are in a prerender with dynamicIO semantics
+                // We are going to hang here and never resolve. This will cause the currently
+                // rendering component to effectively be a dynamic hole
+                React.use(makeHangingPromise(workUnitStore.renderSignal, expression));
+            } else if (workUnitStore.type === 'prerender-ppr') {
+                // We're prerendering with PPR
+                postponeWithTracking(workStore.route, expression, workUnitStore.dynamicTracking);
+            } else if (workUnitStore.type === 'prerender-legacy') {
+                throwToInterruptStaticGeneration(expression, workStore, workUnitStore);
             }
         }
     }
@@ -345,7 +399,11 @@ export function trackAllowedDynamicAccess(route, componentStack, dynamicValidati
     }
 }
 function createErrorWithComponentStack(message, componentStack) {
-    const error = new Error(message);
+    const error = Object.defineProperty(new Error(message), "__NEXT_ERROR_CODE", {
+        value: "E394",
+        enumerable: false,
+        configurable: true
+    });
     error.stack = 'Error: ' + message + componentStack;
     return error;
 }
@@ -386,15 +444,31 @@ export function throwIfDisallowedDynamic(route, dynamicValidation, serverDynamic
         if (dynamicValidation.hasDynamicMetadata) {
             if (syncError) {
                 console.error(syncError);
-                throw new StaticGenBailoutError(`Route "${route}" has a \`generateMetadata\` that could not finish rendering before ${syncExpression} was used. Follow the instructions in the error for this expression to resolve.`);
+                throw Object.defineProperty(new StaticGenBailoutError(`Route "${route}" has a \`generateMetadata\` that could not finish rendering before ${syncExpression} was used. Follow the instructions in the error for this expression to resolve.`), "__NEXT_ERROR_CODE", {
+                    value: "E608",
+                    enumerable: false,
+                    configurable: true
+                });
             }
-            throw new StaticGenBailoutError(`Route "${route}" has a \`generateMetadata\` that depends on Request data (\`cookies()\`, etc...) or external data (\`fetch(...)\`, etc...) but the rest of the route was static or only used cached data (\`"use cache"\`). If you expected this route to be prerenderable update your \`generateMetadata\` to not use Request data and only use cached external data. Otherwise, add \`await connection()\` somewhere within this route to indicate explicitly it should not be prerendered.`);
+            throw Object.defineProperty(new StaticGenBailoutError(`Route "${route}" has a \`generateMetadata\` that depends on Request data (\`cookies()\`, etc...) or external data (\`fetch(...)\`, etc...) but the rest of the route was static or only used cached data (\`"use cache"\`). If you expected this route to be prerenderable update your \`generateMetadata\` to not use Request data and only use cached external data. Otherwise, add \`await connection()\` somewhere within this route to indicate explicitly it should not be prerendered.`), "__NEXT_ERROR_CODE", {
+                value: "E534",
+                enumerable: false,
+                configurable: true
+            });
         } else if (dynamicValidation.hasDynamicViewport) {
             if (syncError) {
                 console.error(syncError);
-                throw new StaticGenBailoutError(`Route "${route}" has a \`generateViewport\` that could not finish rendering before ${syncExpression} was used. Follow the instructions in the error for this expression to resolve.`);
+                throw Object.defineProperty(new StaticGenBailoutError(`Route "${route}" has a \`generateViewport\` that could not finish rendering before ${syncExpression} was used. Follow the instructions in the error for this expression to resolve.`), "__NEXT_ERROR_CODE", {
+                    value: "E573",
+                    enumerable: false,
+                    configurable: true
+                });
             }
-            throw new StaticGenBailoutError(`Route "${route}" has a \`generateViewport\` that depends on Request data (\`cookies()\`, etc...) or external data (\`fetch(...)\`, etc...) but the rest of the route was static or only used cached data (\`"use cache"\`). If you expected this route to be prerenderable update your \`generateViewport\` to not use Request data and only use cached external data. Otherwise, add \`await connection()\` somewhere within this route to indicate explicitly it should not be prerendered.`);
+            throw Object.defineProperty(new StaticGenBailoutError(`Route "${route}" has a \`generateViewport\` that depends on Request data (\`cookies()\`, etc...) or external data (\`fetch(...)\`, etc...) but the rest of the route was static or only used cached data (\`"use cache"\`). If you expected this route to be prerenderable update your \`generateViewport\` to not use Request data and only use cached external data. Otherwise, add \`await connection()\` somewhere within this route to indicate explicitly it should not be prerendered.`), "__NEXT_ERROR_CODE", {
+                value: "E590",
+                enumerable: false,
+                configurable: true
+            });
         }
     }
 }

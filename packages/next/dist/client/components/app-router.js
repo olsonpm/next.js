@@ -6,7 +6,8 @@ Object.defineProperty(exports, "__esModule", {
 0 && (module.exports = {
     createEmptyCacheNode: null,
     createPrefetchURL: null,
-    default: null
+    default: null,
+    isExternalURL: null
 });
 function _export(target, all) {
     for(var name in all)Object.defineProperty(target, name, {
@@ -23,6 +24,9 @@ _export(exports, {
     },
     default: function() {
         return AppRouter;
+    },
+    isExternalURL: function() {
+        return isExternalURL;
     }
 });
 const _interop_require_wildcard = require("@swc/helpers/_/_interop_require_wildcard");
@@ -32,8 +36,8 @@ const _approutercontextsharedruntime = require("../../shared/lib/app-router-cont
 const _routerreducertypes = require("./router-reducer/router-reducer-types");
 const _createhreffromurl = require("./router-reducer/create-href-from-url");
 const _hooksclientcontextsharedruntime = require("../../shared/lib/hooks-client-context.shared-runtime");
-const _usereducer = require("./use-reducer");
-const _errorboundary = require("./error-boundary");
+const _useactionqueue = require("./use-action-queue");
+const _errorboundary = /*#__PURE__*/ _interop_require_wildcard._(require("./error-boundary"));
 const _isbot = require("../../shared/lib/router/utils/is-bot");
 const _addbasepath = require("../add-base-path");
 const _approuterannouncer = require("./app-router-announcer");
@@ -44,10 +48,10 @@ const _removebasepath = require("../remove-base-path");
 const _hasbasepath = require("../has-base-path");
 const _computechangedpath = require("./router-reducer/compute-changed-path");
 const _navfailurehandler = require("./nav-failure-handler");
-const _appcallserver = require("../app-call-server");
-const _prefetch = require("../components/segment-cache/prefetch");
+const _approuterinstance = require("./app-router-instance");
 const _redirect = require("./redirect");
 const _redirecterror = require("./redirect-error");
+const _links = require("./links");
 const globalMutable = {};
 function isExternalURL(url) {
     return url.origin !== window.location.origin;
@@ -63,7 +67,11 @@ function createPrefetchURL(href) {
     } catch (_) {
         // TODO: Does this need to throw or can we just console.error instead? Does
         // anyone rely on this throwing? (Seems unlikely.)
-        throw new Error("Cannot prefetch '" + href + "' because it cannot be converted to a URL.");
+        throw Object.defineProperty(new Error("Cannot prefetch '" + href + "' because it cannot be converted to a URL."), "__NEXT_ERROR_CODE", {
+            value: "E234",
+            enumerable: false,
+            configurable: true
+        });
     }
     // Don't prefetch during development (improves compilation performance)
     if (process.env.NODE_ENV === 'development') {
@@ -104,6 +112,18 @@ function HistoryUpdater(param) {
     }, [
         appRouterState
     ]);
+    (0, _react.useEffect)(()=>{
+        // The Next-Url and the base tree may affect the result of a prefetch
+        // task. Re-prefetch all visible links with the updated values. In most
+        // cases, this will not result in any new network requests, only if
+        // the prefetch result actually varies on one of these inputs.
+        if (process.env.__NEXT_CLIENT_SEGMENT_CACHE) {
+            (0, _links.pingVisibleLinks)(appRouterState.nextUrl, appRouterState.tree);
+        }
+    }, [
+        appRouterState.nextUrl,
+        appRouterState.tree
+    ]);
     return null;
 }
 function createEmptyCacheNode() {
@@ -114,43 +134,9 @@ function createEmptyCacheNode() {
         head: null,
         prefetchHead: null,
         parallelRoutes: new Map(),
-        loading: null
+        loading: null,
+        navigatedAt: -1
     };
-}
-/**
- * Server response that only patches the cache and tree.
- */ function useChangeByServerResponse(dispatch) {
-    return (0, _react.useCallback)((param)=>{
-        let { previousTree, serverResponse } = param;
-        (0, _react.startTransition)(()=>{
-            dispatch({
-                type: _routerreducertypes.ACTION_SERVER_PATCH,
-                previousTree,
-                serverResponse
-            });
-        });
-    }, [
-        dispatch
-    ]);
-}
-function useNavigate(dispatch) {
-    return (0, _react.useCallback)((href, navigateType, shouldScroll)=>{
-        const url = new URL((0, _addbasepath.addBasePath)(href), location.href);
-        if (process.env.__NEXT_APP_NAV_FAIL_HANDLING) {
-            window.next.__pendingUrl = url;
-        }
-        return dispatch({
-            type: _routerreducertypes.ACTION_NAVIGATE,
-            url,
-            isExternalUrl: isExternalURL(url),
-            locationSearch: location.search,
-            shouldScroll: shouldScroll != null ? shouldScroll : true,
-            navigateType,
-            allowAliasing: true
-        });
-    }, [
-        dispatch
-    ]);
 }
 function copyNextJsInternalHistoryState(data) {
     if (data == null) data = {};
@@ -177,18 +163,14 @@ function Head(param) {
     // We use `useDeferredValue` to handle switching between the prefetched and
     // final values. The second argument is returned on initial render, then it
     // re-renders with the first argument.
-    //
-    // @ts-expect-error The second argument to `useDeferredValue` is only
-    // available in the experimental builds. When its disabled, it will always
-    // return `head`.
     return (0, _react.useDeferredValue)(head, resolvedPrefetchRsc);
 }
 /**
  * The global router that wraps the application components.
  */ function Router(param) {
-    let { actionQueue, assetPrefix } = param;
-    const [state, dispatch] = (0, _usereducer.useReducer)(actionQueue);
-    const { canonicalUrl } = (0, _usereducer.useUnwrapState)(state);
+    let { actionQueue, assetPrefix, globalError } = param;
+    const state = (0, _useactionqueue.useActionQueue)(actionQueue);
+    const { canonicalUrl } = state;
     // Add memoized pathname/query for useSearchParams and usePathname.
     const { searchParams, pathname } = (0, _react.useMemo)(()=>{
         const url = new URL(canonicalUrl, typeof window === 'undefined' ? 'http://n' : window.location.href);
@@ -200,83 +182,9 @@ function Head(param) {
     }, [
         canonicalUrl
     ]);
-    const changeByServerResponse = useChangeByServerResponse(dispatch);
-    const navigate = useNavigate(dispatch);
-    (0, _appcallserver.useServerActionDispatcher)(dispatch);
-    /**
-   * The app router that is exposed through `useRouter`. It's only concerned with dispatching actions to the reducer, does not hold state.
-   */ const appRouter = (0, _react.useMemo)(()=>{
-        const routerInstance = {
-            back: ()=>window.history.back(),
-            forward: ()=>window.history.forward(),
-            prefetch: process.env.__NEXT_PPR && process.env.__NEXT_CLIENT_SEGMENT_CACHE ? // data in the router reducer state; it writes into a global mutable
-            // cache. So we don't need to dispatch an action.
-            (href)=>(0, _prefetch.prefetch)(href, actionQueue.state.nextUrl) : (href, options)=>{
-                // Use the old prefetch implementation.
-                const url = createPrefetchURL(href);
-                if (url !== null) {
-                    (0, _react.startTransition)(()=>{
-                        var _options_kind;
-                        dispatch({
-                            type: _routerreducertypes.ACTION_PREFETCH,
-                            url,
-                            kind: (_options_kind = options == null ? void 0 : options.kind) != null ? _options_kind : _routerreducertypes.PrefetchKind.FULL
-                        });
-                    });
-                }
-            },
-            replace: (href, options)=>{
-                if (options === void 0) options = {};
-                (0, _react.startTransition)(()=>{
-                    var _options_scroll;
-                    navigate(href, 'replace', (_options_scroll = options.scroll) != null ? _options_scroll : true);
-                });
-            },
-            push: (href, options)=>{
-                if (options === void 0) options = {};
-                (0, _react.startTransition)(()=>{
-                    var _options_scroll;
-                    navigate(href, 'push', (_options_scroll = options.scroll) != null ? _options_scroll : true);
-                });
-            },
-            refresh: ()=>{
-                (0, _react.startTransition)(()=>{
-                    dispatch({
-                        type: _routerreducertypes.ACTION_REFRESH,
-                        origin: window.location.origin
-                    });
-                });
-            },
-            hmrRefresh: ()=>{
-                if (process.env.NODE_ENV !== 'development') {
-                    throw new Error('hmrRefresh can only be used in development mode. Please use refresh instead.');
-                } else {
-                    (0, _react.startTransition)(()=>{
-                        dispatch({
-                            type: _routerreducertypes.ACTION_HMR_REFRESH,
-                            origin: window.location.origin
-                        });
-                    });
-                }
-            }
-        };
-        return routerInstance;
-    }, [
-        actionQueue,
-        dispatch,
-        navigate
-    ]);
-    (0, _react.useEffect)(()=>{
-        // Exists for debugging purposes. Don't use in application code.
-        if (window.next) {
-            window.next.router = appRouter;
-        }
-    }, [
-        appRouter
-    ]);
     if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line react-hooks/rules-of-hooks
-        const { cache, prefetchCache, tree } = (0, _usereducer.useUnwrapState)(state);
+        const { cache, prefetchCache, tree } = state;
         // This hook is in a conditional but that is ok because `process.env.NODE_ENV` never changes
         // eslint-disable-next-line react-hooks/rules-of-hooks
         (0, _react.useEffect)(()=>{
@@ -284,13 +192,12 @@ function Head(param) {
             // This is not meant for use in applications as concurrent rendering will affect the cache/tree/router.
             // @ts-ignore this is for debugging
             window.nd = {
-                router: appRouter,
+                router: _approuterinstance.publicAppRouterInstance,
                 cache,
                 prefetchCache,
                 tree
             };
         }, [
-            appRouter,
             cache,
             prefetchCache,
             tree
@@ -310,7 +217,7 @@ function Head(param) {
             // This is necessary because if the browser restored from bfcache, the pendingMpaPath would still be set to the value
             // of the last MPA navigation.
             globalMutable.pendingMpaPath = undefined;
-            dispatch({
+            (0, _useactionqueue.dispatchAppRouterAction)({
                 type: _routerreducertypes.ACTION_RESTORE,
                 url: new URL(window.location.href),
                 tree: window.history.state.__PRIVATE_NEXTJS_INTERNALS_TREE
@@ -320,9 +227,7 @@ function Head(param) {
         return ()=>{
             window.removeEventListener('pageshow', handlePageShow);
         };
-    }, [
-        dispatch
-    ]);
+    }, []);
     (0, _react.useEffect)(()=>{
         // Ensure that any redirect errors that bubble up outside of the RedirectBoundary
         // are caught and handled by the router.
@@ -332,10 +237,12 @@ function Head(param) {
                 event.preventDefault();
                 const url = (0, _redirect.getURLFromRedirectError)(error);
                 const redirectType = (0, _redirect.getRedirectTypeFromError)(error);
+                // TODO: This should access the router methods directly, rather than
+                // go through the public interface.
                 if (redirectType === _redirecterror.RedirectType.push) {
-                    appRouter.push(url, {});
+                    _approuterinstance.publicAppRouterInstance.push(url, {});
                 } else {
-                    appRouter.replace(url, {});
+                    _approuterinstance.publicAppRouterInstance.replace(url, {});
                 }
             }
         }
@@ -345,9 +252,7 @@ function Head(param) {
             window.removeEventListener('error', handleUnhandledRedirect);
             window.removeEventListener('unhandledrejection', handleUnhandledRedirect);
         };
-    }, [
-        appRouter
-    ]);
+    }, []);
     // When mpaNavigation flag is set do a hard navigation to the new url.
     // Infinitely suspend because we don't actually want to rerender any child
     // components with the new URL and any entangled state updates shouldn't
@@ -358,15 +263,15 @@ function Head(param) {
     // probably safe because we know this is a singleton component and it's never
     // in <Offscreen>. At least I hope so. (It will run twice in dev strict mode,
     // but that's... fine?)
-    const { pushRef } = (0, _usereducer.useUnwrapState)(state);
+    const { pushRef } = state;
     if (pushRef.mpaNavigation) {
         // if there's a re-render, we don't want to trigger another redirect if one is already in flight to the same URL
         if (globalMutable.pendingMpaPath !== canonicalUrl) {
-            const location1 = window.location;
+            const location = window.location;
             if (pushRef.pendingPush) {
-                location1.assign(canonicalUrl);
+                location.assign(canonicalUrl);
             } else {
-                location1.replace(canonicalUrl);
+                location.replace(canonicalUrl);
             }
             globalMutable.pendingMpaPath = canonicalUrl;
         }
@@ -384,7 +289,7 @@ function Head(param) {
             const href = window.location.href;
             const tree = (_window_history_state = window.history.state) == null ? void 0 : _window_history_state.__PRIVATE_NEXTJS_INTERNALS_TREE;
             (0, _react.startTransition)(()=>{
-                dispatch({
+                (0, _useactionqueue.dispatchAppRouterAction)({
                     type: _routerreducertypes.ACTION_RESTORE,
                     url: new URL(url != null ? url : href, href),
                     tree
@@ -438,11 +343,7 @@ function Head(param) {
             // TODO-APP: Ideally the back button should not use startTransition as it should apply the updates synchronously
             // Without startTransition works if the cache is there for this path
             (0, _react.startTransition)(()=>{
-                dispatch({
-                    type: _routerreducertypes.ACTION_RESTORE,
-                    url: new URL(window.location.href),
-                    tree: event.state.__PRIVATE_NEXTJS_INTERNALS_TREE
-                });
+                (0, _approuterinstance.dispatchTraverseAction)(window.location.href, event.state.__PRIVATE_NEXTJS_INTERNALS_TREE);
             });
         };
         // Register popstate event to call onPopstate.
@@ -452,10 +353,8 @@ function Head(param) {
             window.history.replaceState = originalReplaceState;
             window.removeEventListener('popstate', onPopState);
         };
-    }, [
-        dispatch
-    ]);
-    const { cache, tree, nextUrl, focusAndScrollRef } = (0, _usereducer.useUnwrapState)(state);
+    }, []);
+    const { cache, tree, nextUrl, focusAndScrollRef } = state;
     const matchingHead = (0, _react.useMemo)(()=>{
         return (0, _findheadincache.findHeadInCache)(cache, tree[1]);
     }, [
@@ -470,28 +369,25 @@ function Head(param) {
     ]);
     const layoutRouterContext = (0, _react.useMemo)(()=>{
         return {
-            childNodes: cache.parallelRoutes,
-            tree,
+            parentTree: tree,
+            parentCacheNode: cache,
+            parentSegmentPath: null,
             // Root node always has `url`
             // Provided in AppTreeContext to ensure it can be overwritten in layout-router
-            url: canonicalUrl,
-            loading: cache.loading
+            url: canonicalUrl
         };
     }, [
-        cache.parallelRoutes,
         tree,
-        canonicalUrl,
-        cache.loading
+        cache,
+        canonicalUrl
     ]);
     const globalLayoutRouterContext = (0, _react.useMemo)(()=>{
         return {
-            changeByServerResponse,
             tree,
             focusAndScrollRef,
             nextUrl
         };
     }, [
-        changeByServerResponse,
         tree,
         focusAndScrollRef,
         nextUrl
@@ -521,6 +417,12 @@ function Head(param) {
         ]
     });
     if (process.env.NODE_ENV !== 'production') {
+        // In development, we apply few error boundaries and hot-reloader:
+        // - DevRootHTTPAccessFallbackBoundary: avoid using navigation API like notFound() in root layout
+        // - HotReloader:
+        //  - hot-reload the app when the code changes
+        //  - render dev overlay
+        //  - catch runtime errors and display global-error when necessary
         if (typeof window !== 'undefined') {
             const { DevRootHTTPAccessFallbackBoundary } = require('./dev-root-http-access-fallback-boundary');
             content = /*#__PURE__*/ (0, _jsxruntime.jsx)(DevRootHTTPAccessFallbackBoundary, {
@@ -530,13 +432,21 @@ function Head(param) {
         const HotReloader = require('./react-dev-overlay/app/hot-reloader-client').default;
         content = /*#__PURE__*/ (0, _jsxruntime.jsx)(HotReloader, {
             assetPrefix: assetPrefix,
+            globalError: globalError,
+            children: content
+        });
+    } else {
+        // In production, we only apply the user-customized global error boundary.
+        content = /*#__PURE__*/ (0, _jsxruntime.jsx)(_errorboundary.ErrorBoundary, {
+            errorComponent: globalError[0],
+            errorStyles: globalError[1],
             children: content
         });
     }
     return /*#__PURE__*/ (0, _jsxruntime.jsxs)(_jsxruntime.Fragment, {
         children: [
             /*#__PURE__*/ (0, _jsxruntime.jsx)(HistoryUpdater, {
-                appRouterState: (0, _usereducer.useUnwrapState)(state)
+                appRouterState: state
             }),
             /*#__PURE__*/ (0, _jsxruntime.jsx)(RuntimeStyles, {}),
             /*#__PURE__*/ (0, _jsxruntime.jsx)(_hooksclientcontextsharedruntime.PathParamsContext.Provider, {
@@ -548,7 +458,7 @@ function Head(param) {
                         children: /*#__PURE__*/ (0, _jsxruntime.jsx)(_approutercontextsharedruntime.GlobalLayoutRouterContext.Provider, {
                             value: globalLayoutRouterContext,
                             children: /*#__PURE__*/ (0, _jsxruntime.jsx)(_approutercontextsharedruntime.AppRouterContext.Provider, {
-                                value: appRouter,
+                                value: _approuterinstance.publicAppRouterInstance,
                                 children: /*#__PURE__*/ (0, _jsxruntime.jsx)(_approutercontextsharedruntime.LayoutRouterContext.Provider, {
                                     value: layoutRouterContext,
                                     children: content
@@ -565,11 +475,16 @@ function AppRouter(param) {
     let { actionQueue, globalErrorComponentAndStyles: [globalErrorComponent, globalErrorStyles], assetPrefix } = param;
     (0, _navfailurehandler.useNavFailureHandler)();
     return /*#__PURE__*/ (0, _jsxruntime.jsx)(_errorboundary.ErrorBoundary, {
-        errorComponent: globalErrorComponent,
-        errorStyles: globalErrorStyles,
+        // At the very top level, use the default GlobalError component as the final fallback.
+        // When the app router itself fails, which means the framework itself fails, we show the default error.
+        errorComponent: _errorboundary.default,
         children: /*#__PURE__*/ (0, _jsxruntime.jsx)(Router, {
             actionQueue: actionQueue,
-            assetPrefix: assetPrefix
+            assetPrefix: assetPrefix,
+            globalError: [
+                globalErrorComponent,
+                globalErrorStyles
+            ]
         })
     });
 }

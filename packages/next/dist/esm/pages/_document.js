@@ -1,3 +1,4 @@
+/// <reference types="webpack/module.d.ts" />
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { createElement as _createElement } from "react";
 import React from 'react';
@@ -102,6 +103,7 @@ function getPreNextWorkerScripts(context, props) {
     // disable `nextScriptWorkers` in edge runtime
     if (!nextScriptWorkers || process.env.NEXT_RUNTIME === 'edge') return null;
     try {
+        // @ts-expect-error: Prevent webpack from processing this require
         let { partytownSnippet } = __non_webpack_require__('@builder.io/partytown/integration');
         const children = Array.isArray(props.children) ? props.children : [
             props.children
@@ -146,7 +148,11 @@ function getPreNextWorkerScripts(context, props) {
                             __html: typeof scriptChildren === 'string' ? scriptChildren : Array.isArray(scriptChildren) ? scriptChildren.join('') : ''
                         };
                     } else {
-                        throw new Error('Invalid usage of next/script. Did you forget to include a src attribute or an inline script? https://nextjs.org/docs/messages/invalid-script');
+                        throw Object.defineProperty(new Error('Invalid usage of next/script. Did you forget to include a src attribute or an inline script? https://nextjs.org/docs/messages/invalid-script'), "__NEXT_ERROR_CODE", {
+                            value: "E82",
+                            enumerable: false,
+                            configurable: true
+                        });
                     }
                     return /*#__PURE__*/ _createElement("script", {
                         ...srcProps,
@@ -633,7 +639,11 @@ export class NextScript extends React.Component {
             return htmlEscapeJsonString(data);
         } catch (err) {
             if (isError(err) && err.message.indexOf('circular structure') !== -1) {
-                throw new Error(`Circular structure in "getInitialProps" result of page "${__NEXT_DATA__.page}". https://nextjs.org/docs/messages/circular-structure`);
+                throw Object.defineProperty(new Error(`Circular structure in "getInitialProps" result of page "${__NEXT_DATA__.page}". https://nextjs.org/docs/messages/circular-structure`), "__NEXT_ERROR_CODE", {
+                    value: "E490",
+                    enumerable: false,
+                    configurable: true
+                });
             }
             throw err;
         }

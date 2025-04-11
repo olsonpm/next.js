@@ -94,7 +94,11 @@ function parseJsonFile(filePath) {
             message: err.message,
             highlightCode: true
         });
-        throw new Error(`Failed to parse "${filePath}":\n${codeFrame}`);
+        throw Object.defineProperty(new Error(`Failed to parse "${filePath}":\n${codeFrame}`), "__NEXT_ERROR_CODE", {
+            value: "E232",
+            enumerable: false,
+            configurable: true
+        });
     }
 }
 async function loadJsConfig(dir, config) {
@@ -111,7 +115,8 @@ async function loadJsConfig(dir, config) {
         typeScriptPath = deps.resolved.get('typescript');
     } catch  {}
     const tsConfigPath = _path.default.join(dir, config.typescript.tsconfigPath);
-    const useTypeScript = Boolean(typeScriptPath && _fs.default.existsSync(tsConfigPath));
+    const useExplicitCfg = typeof config.usingTypeScript === 'boolean';
+    const useTypeScript = useExplicitCfg ? config.usingTypeScript : Boolean(typeScriptPath && _fs.default.existsSync(tsConfigPath));
     let implicitBaseurl;
     let jsConfig;
     // jsconfig is a subset of tsconfig
@@ -149,7 +154,8 @@ async function loadJsConfig(dir, config) {
     return {
         useTypeScript,
         jsConfig,
-        resolvedBaseUrl
+        resolvedBaseUrl,
+        jsConfigPath: useTypeScript ? tsConfigPath : _fs.default.existsSync(jsConfigPath) ? jsConfigPath : undefined
     };
 }
 

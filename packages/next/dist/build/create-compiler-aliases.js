@@ -160,6 +160,15 @@ function createWebpackAliases({ distDir, isClient, isEdgeServer, isNodeServer, d
             [_constants.APP_DIR_ALIAS]: appDir
         } : {},
         [_constants.ROOT_DIR_ALIAS]: dir,
+        ...isClient ? {
+            'private-next-instrumentation-client': [
+                _path.default.join(dir, 'src', 'instrumentation-client'),
+                _path.default.join(dir, 'instrumentation-client'),
+                'private-next-empty-module'
+            ],
+            // disable typechecker, webpack5 allows aliases to be set to false to create a no-op module
+            'private-next-empty-module': false
+        } : {},
         [_constants.DOT_NEXT_ALIAS]: distDir,
         ...isClient || isEdgeServer ? getOptimizedModuleAliases() : {},
         ...reactProductionProfiling ? getReactProfilingInProduction() : {},
@@ -221,7 +230,8 @@ function createAppRouterApiAliases(isServerOnlyLayer) {
     const mapping = {
         head: 'next/dist/client/components/noop-head',
         dynamic: 'next/dist/api/app-dynamic',
-        link: 'next/dist/client/app-dir/link'
+        link: 'next/dist/client/app-dir/link',
+        form: 'next/dist/client/app-dir/form'
     };
     if (isServerOnlyLayer) {
         mapping['navigation'] = 'next/dist/api/navigation.react-server';

@@ -36,12 +36,12 @@ function hasBabelConfig(dir) {
 function eventCliSession(dir, nextConfig, event) {
     var _nextConfig_experimental_staleTimes, _nextConfig_experimental_staleTimes1, _nextConfig_experimental_reactCompiler, _nextConfig_experimental_reactCompiler1;
     // This should be an invariant, if it fails our build tooling is broken.
-    if (typeof "15.1.2" !== 'string') {
+    if (typeof "15.3.0" !== 'string') {
         return [];
     }
     const { images, i18n } = nextConfig || {};
     const payload = {
-        nextVersion: "15.1.2",
+        nextVersion: "15.3.0",
         nodeVersion: process.version,
         cliCommand: event.cliCommand,
         isSrcDir: event.isSrcDir,
@@ -62,6 +62,7 @@ function eventCliSession(dir, nextConfig, event) {
         imageRemotePatternsCount: (images == null ? void 0 : images.remotePatterns) ? images.remotePatterns.length : null,
         imageLocalPatternsCount: (images == null ? void 0 : images.localPatterns) ? images.localPatterns.length : null,
         imageSizes: (images == null ? void 0 : images.imageSizes) ? images.imageSizes.join(',') : null,
+        imageQualities: (images == null ? void 0 : images.qualities) ? images.qualities.join(',') : null,
         imageLoader: images == null ? void 0 : images.loader,
         imageFormats: (images == null ? void 0 : images.formats) ? images.formats.join(',') : null,
         nextConfigOutput: (nextConfig == null ? void 0 : nextConfig.output) || null,
@@ -69,6 +70,7 @@ function eventCliSession(dir, nextConfig, event) {
         reactStrictMode: !!(nextConfig == null ? void 0 : nextConfig.reactStrictMode),
         webpackVersion: event.webpackVersion || null,
         turboFlag: event.turboFlag || false,
+        isRspack: process.env.NEXT_RSPACK !== undefined,
         appDir: event.appDir,
         pagesDir: event.pagesDir,
         staticStaleTime: ((_nextConfig_experimental_staleTimes = nextConfig.experimental.staleTimes) == null ? void 0 : _nextConfig_experimental_staleTimes.static) ?? null,

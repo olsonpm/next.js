@@ -5,7 +5,8 @@ Object.defineProperty(exports, "__esModule", {
 0 && (module.exports = {
     evalManifestWithRetries: null,
     loadComponents: null,
-    loadManifestWithRetries: null
+    loadManifestWithRetries: null,
+    tryLoadManifestWithRetries: null
 });
 function _export(target, all) {
     for(var name in all)Object.defineProperty(target, name, {
@@ -22,6 +23,9 @@ _export(exports, {
     },
     loadManifestWithRetries: function() {
         return loadManifestWithRetries;
+    },
+    tryLoadManifestWithRetries: function() {
+        return tryLoadManifestWithRetries;
     }
 });
 const _constants = require("../shared/lib/constants");
@@ -34,6 +38,7 @@ const _loadmanifest = require("./load-manifest");
 const _wait = require("../lib/wait");
 const _encryptionutils = require("./app-render/encryption-utils");
 const _actionutils = require("./app-render/action-utils");
+const _normalizepagepath = require("../shared/lib/page-path/normalize-page-path");
 const _ismetadataroute = require("../lib/metadata/is-metadata-route");
 async function loadManifestWithRetries(manifestPath, attempts = 3) {
     while(true){
@@ -44,6 +49,13 @@ async function loadManifestWithRetries(manifestPath, attempts = 3) {
             if (attempts <= 0) throw err;
             await (0, _wait.wait)(100);
         }
+    }
+}
+async function tryLoadManifestWithRetries(manifestPath, attempts = 3) {
+    try {
+        return await loadManifestWithRetries(manifestPath, attempts);
+    } catch (err) {
+        return undefined;
     }
 }
 async function evalManifestWithRetries(manifestPath, attempts = 3) {
@@ -57,15 +69,15 @@ async function evalManifestWithRetries(manifestPath, attempts = 3) {
         }
     }
 }
-async function loadClientReferenceManifest(manifestPath, entryName) {
+async function tryLoadClientReferenceManifest(manifestPath, entryName, attempts) {
     try {
-        const context = await evalManifestWithRetries(manifestPath);
+        const context = await evalManifestWithRetries(manifestPath, attempts);
         return context.__RSC_MANIFEST[entryName];
     } catch (err) {
         return undefined;
     }
 }
-async function loadComponentsImpl({ distDir, page, isAppPath }) {
+async function loadComponentsImpl({ distDir, page, isAppPath, isDev, sriEnabled }) {
     let DocumentMod = {};
     let AppMod = {};
     if (!isAppPath) {
@@ -75,16 +87,34 @@ async function loadComponentsImpl({ distDir, page, isAppPath }) {
             (0, _require.requirePage)('/_app', distDir, false)
         ]);
     }
-    // Make sure to avoid loading the manifest for metadata route handlers.
-    const hasClientManifest = isAppPath && !(0, _ismetadataroute.isMetadataRoute)(page);
+    // In dev mode we retry loading a manifest file to handle a race condition
+    // that can occur while app and pages are compiling at the same time, and the
+    // build-manifest is still being written to disk while an app path is
+    // attempting to load.
+    const manifestLoadAttempts = isDev ? 3 : 1;
+    let reactLoadableManifestPath;
+    if (!process.env.TURBOPACK) {
+        reactLoadableManifestPath = (0, _path.join)(distDir, _constants.REACT_LOADABLE_MANIFEST);
+    } else if (isAppPath) {
+        reactLoadableManifestPath = (0, _path.join)(distDir, 'server', 'app', page, _constants.REACT_LOADABLE_MANIFEST);
+    } else {
+        reactLoadableManifestPath = (0, _path.join)(distDir, 'server', 'pages', (0, _normalizepagepath.normalizePagePath)(page), _constants.REACT_LOADABLE_MANIFEST);
+    }
+    // Make sure to avoid loading the manifest for static metadata routes for better performance.
+    const hasClientManifest = !(0, _ismetadataroute.isStaticMetadataRoute)(page);
     // Load the manifest files first
-    const [buildManifest, reactLoadableManifest, dynamicCssManifest, clientReferenceManifest, serverActionsManifest] = await Promise.all([
-        loadManifestWithRetries((0, _path.join)(distDir, _constants.BUILD_MANIFEST)),
-        loadManifestWithRetries((0, _path.join)(distDir, _constants.REACT_LOADABLE_MANIFEST)),
+    //
+    // Loading page-specific manifests shouldn't throw an error if the manifest couldn't be found, so
+    // that the `requirePage` call below will throw the correct error in that case
+    // (a `PageNotFoundError`).
+    const [buildManifest, reactLoadableManifest, dynamicCssManifest, clientReferenceManifest, serverActionsManifest, subresourceIntegrityManifest] = await Promise.all([
+        loadManifestWithRetries((0, _path.join)(distDir, _constants.BUILD_MANIFEST), manifestLoadAttempts),
+        tryLoadManifestWithRetries(reactLoadableManifestPath, manifestLoadAttempts),
         // This manifest will only exist in Pages dir && Production && Webpack.
-        isAppPath || process.env.TURBOPACK ? undefined : loadManifestWithRetries((0, _path.join)(distDir, `${_constants.DYNAMIC_CSS_MANIFEST}.json`)).catch(()=>undefined),
-        hasClientManifest ? loadClientReferenceManifest((0, _path.join)(distDir, 'server', 'app', page.replace(/%5F/g, '_') + '_' + _constants.CLIENT_REFERENCE_MANIFEST + '.js'), page.replace(/%5F/g, '_')) : undefined,
-        isAppPath ? loadManifestWithRetries((0, _path.join)(distDir, 'server', _constants.SERVER_REFERENCE_MANIFEST + '.json')).catch(()=>null) : null
+        isAppPath || process.env.TURBOPACK ? undefined : loadManifestWithRetries((0, _path.join)(distDir, `${_constants.DYNAMIC_CSS_MANIFEST}.json`), manifestLoadAttempts).catch(()=>undefined),
+        isAppPath && hasClientManifest ? tryLoadClientReferenceManifest((0, _path.join)(distDir, 'server', 'app', page.replace(/%5F/g, '_') + '_' + _constants.CLIENT_REFERENCE_MANIFEST + '.js'), page.replace(/%5F/g, '_'), manifestLoadAttempts) : undefined,
+        isAppPath ? loadManifestWithRetries((0, _path.join)(distDir, 'server', _constants.SERVER_REFERENCE_MANIFEST + '.json'), manifestLoadAttempts).catch(()=>null) : null,
+        sriEnabled ? loadManifestWithRetries((0, _path.join)(distDir, 'server', _constants.SUBRESOURCE_INTEGRITY_MANIFEST + '.json')).catch(()=>undefined) : undefined
     ]);
     // Before requiring the actual page module, we have to set the reference
     // manifests to our global store so Server Action's encryption util can access
@@ -109,7 +139,8 @@ async function loadComponentsImpl({ distDir, page, isAppPath }) {
         Document,
         Component,
         buildManifest,
-        reactLoadableManifest,
+        subresourceIntegrityManifest,
+        reactLoadableManifest: reactLoadableManifest || {},
         dynamicCssManifest,
         pageConfig: ComponentMod.config || {},
         ComponentMod,

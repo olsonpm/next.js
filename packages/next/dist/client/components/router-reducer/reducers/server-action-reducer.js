@@ -29,7 +29,8 @@ const _redirecterror = require("../../redirect-error");
 const _prefetchcacheutils = require("../prefetch-cache-utils");
 const _removebasepath = require("../../../remove-base-path");
 const _hasbasepath = require("../../../has-base-path");
-const _serverreferenceinfo = require("./server-reference-info");
+const _serverreferenceinfo = require("../../../../shared/lib/server-reference-info");
+const _segmentcache = require("../../segment-cache");
 // // eslint-disable-next-line import/no-extraneous-dependencies
 // import { createFromFetch } from 'react-server-dom-webpack/client'
 // // eslint-disable-next-line import/no-extraneous-dependencies
@@ -122,7 +123,11 @@ async function fetchServerAction(state, nextUrl, param) {
         // The server can respond with a text/plain error message, but we'll fallback to something generic
         // if there isn't one.
         const error = contentType === 'text/plain' ? await res.text() : 'An unexpected response was received from the server.';
-        throw new Error(error);
+        throw Object.defineProperty(new Error(error), "__NEXT_ERROR_CODE", {
+            value: "E394",
+            enumerable: false,
+            configurable: true
+        });
     }
     return {
         redirectLocation,
@@ -141,6 +146,7 @@ function serverActionReducer(state, action) {
     // Otherwise the server action might be intercepted with the wrong action id
     // (ie, one that corresponds with the intercepted route)
     const nextUrl = state.nextUrl && (0, _hasinterceptionrouteincurrenttree.hasInterceptionRouteInCurrentTree)(state.tree) ? state.nextUrl : null;
+    const navigatedAt = Date.now();
     return fetchServerAction(state, nextUrl, action).then(async (param)=>{
         let { actionResult, actionFlightData: flightData, redirectLocation, redirectType, isPrerender, revalidatedParts } = param;
         let redirectHref;
@@ -198,12 +204,17 @@ function serverActionReducer(state, action) {
                 cache.rsc = rsc;
                 cache.prefetchRsc = null;
                 cache.loading = cacheNodeSeedData[3];
-                (0, _filllazyitemstillleafwithhead.fillLazyItemsTillLeafWithHead)(cache, // Existing cache is not passed in as server actions have to invalidate the entire cache.
-                undefined, treePatch, cacheNodeSeedData, head);
+                (0, _filllazyitemstillleafwithhead.fillLazyItemsTillLeafWithHead)(navigatedAt, cache, // Existing cache is not passed in as server actions have to invalidate the entire cache.
+                undefined, treePatch, cacheNodeSeedData, head, undefined);
                 mutable.cache = cache;
-                mutable.prefetchCache = new Map();
+                if (process.env.__NEXT_CLIENT_SEGMENT_CACHE) {
+                    (0, _segmentcache.revalidateEntireCache)(state.nextUrl, newTree);
+                } else {
+                    mutable.prefetchCache = new Map();
+                }
                 if (actionRevalidated) {
                     await (0, _refetchinactiveparallelsegments.refreshInactiveParallelSegments)({
+                        navigatedAt,
                         state,
                         updatedTree: newTree,
                         updatedCache: cache,
@@ -216,12 +227,17 @@ function serverActionReducer(state, action) {
             currentTree = newTree;
         }
         if (redirectLocation && redirectHref) {
-            // Because the RedirectBoundary will trigger a navigation, we need to seed the prefetch cache
-            // with the FlightData that we got from the server action for the target page, so that it's
-            // available when the page is navigated to and doesn't need to be re-fetched.
-            // We only do this if the server action didn't revalidate any data, as in that case the
-            // client cache will be cleared and the data will be re-fetched anyway.
-            if (!actionRevalidated) {
+            if (!process.env.__NEXT_CLIENT_SEGMENT_CACHE && !actionRevalidated) {
+                // Because the RedirectBoundary will trigger a navigation, we need to seed the prefetch cache
+                // with the FlightData that we got from the server action for the target page, so that it's
+                // available when the page is navigated to and doesn't need to be re-fetched.
+                // We only do this if the server action didn't revalidate any data, as in that case the
+                // client cache will be cleared and the data will be re-fetched anyway.
+                // NOTE: We don't do this in the Segment Cache implementation.
+                // Dynamic data should never be placed into the cache, unless it's
+                // "converted" to static data using <Link prefetch={true}>. What we
+                // do instead is re-prefetch links and forms whenever the cache is
+                // invalidated.
                 (0, _prefetchcacheutils.createSeededPrefetchCacheEntry)({
                     url: redirectLocation,
                     data: {
@@ -241,7 +257,7 @@ function serverActionReducer(state, action) {
                 });
                 mutable.prefetchCache = state.prefetchCache;
             }
-            // If the action triggered a redirect, the action promise promise will be rejected with
+            // If the action triggered a redirect, the action promise will be rejected with
             // a redirect so that it's handled by RedirectBoundary as we won't have a valid
             // action result to resolve the promise with. This will effectively reset the state of
             // the component that called the action as the error boundary will remount the tree.
